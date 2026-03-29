@@ -12,14 +12,13 @@ export function stripAnsi(text) {
 
 /**
  * Check if text contains terminal-style formatting
+ * Only returns true for content with ANSI codes (like /context output)
  */
 export function isTerminalOutput(text) {
   if (!text) return false
-  // Check for ANSI sequences with colors
-  if (/\x1b\[([0-9;]*m)/.test(text)) return true
-  // Check for terminal UI characters (progress bars, etc)
-  if (/[⛶ KB _kb_ ⛀⛁⛀⚠⚝⚞⚟]/.test(text)) return true
-  return false
+  // Only check for ANSI escape sequences - this is the reliable indicator
+  // of terminal-formatted output like /context command results
+  return /\x1b\[([0-9;]*)m/.test(text)
 }
 
 /**
