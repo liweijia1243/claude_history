@@ -39,7 +39,8 @@ const loading = ref(true)
 const fromHistory = computed(() => route.query.source === 'history')
 const fromProject = computed(() => route.query.source === 'project')
 const totalRaw = ref(0)
-const showThinking = ref(true)
+const showThinking = ref(false)
+const showTools = ref(false)
 const selectedSubagent = ref(null)
 const subagentConversation = ref([])
 
@@ -197,6 +198,10 @@ function goBackToProject() {
         <input type="checkbox" v-model="showThinking" class="rounded border-[var(--border-color)] accent-purple-500" />
         Show Thinking
       </label>
+      <label class="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+        <input type="checkbox" v-model="showTools" class="rounded border-[var(--border-color)] accent-emerald-500" />
+        Show Tools
+      </label>
     </div>
 
     <!-- Subagent Panel (overlay) -->
@@ -225,7 +230,7 @@ function goBackToProject() {
                 msg.role === 'user' ? 'bg-[var(--bg-card)] ml-8' : 'bg-[var(--bg-assistant)] mr-8'
               ]"
             >
-              <div class="text-xs text-[var(--text-secondary)] mb-2 font-semibold uppercase tracking-wide">
+              <div v-if="msg.role === 'user' || msg.content || (showThinking && msg.thinking) || (showTools && msg.tool_uses?.length)" class="text-xs text-[var(--text-secondary)] mb-2 font-semibold uppercase tracking-wide">
                 {{ msg.role === 'user' ? 'User' : 'Assistant' }}
               </div>
               <div
@@ -234,7 +239,7 @@ function goBackToProject() {
                 v-html="renderMarkdown(msg.content)"
               ></div>
               <ThinkingBlock v-if="showThinking && msg.thinking" :thinking="msg.thinking" />
-              <ToolCallBlock v-if="msg.tool_uses?.length" :tool-uses="msg.tool_uses" :tool-results="msg.tool_results" />
+              <ToolCallBlock v-if="showTools && msg.tool_uses?.length" :tool-uses="msg.tool_uses" :tool-results="msg.tool_results" />
             </div>
           </div>
         </div>
@@ -264,7 +269,7 @@ function goBackToProject() {
           <!-- Assistant Message -->
           <div v-else class="w-full">
             <!-- Model header -->
-            <div v-if="msg.model" class="flex items-center gap-2 mb-3">
+            <div v-if="msg.model && (msg.content || (showThinking && msg.thinking) || (showTools && msg.tool_uses?.length))" class="flex items-center gap-2 mb-3">
               <span class="text-sm">{{ getModelIcon(msg.model) }}</span>
               <span class="text-sm font-medium text-[var(--text-primary)]">{{ getModelShort(msg.model) }}</span>
               <span v-if="msg.usage" class="text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] px-2 py-0.5 rounded-full">
@@ -287,7 +292,7 @@ function goBackToProject() {
 
             <!-- Tool Uses -->
             <ToolCallBlock
-              v-if="msg.tool_uses?.length"
+              v-if="showTools && msg.tool_uses?.length"
               :tool-uses="msg.tool_uses"
               :tool-results="msg.tool_results"
             />
