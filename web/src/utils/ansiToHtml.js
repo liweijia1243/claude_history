@@ -5,6 +5,16 @@
 // Module-level color constants (avoid recreating on every call)
 const STANDARD_COLORS = ['#1e1e1e', '#f87171', '#4ade80', '#fbbf24', '#60a5fa', '#f0abfc', '#22d3ee', '#d4d4d4']
 const BRIGHT_COLORS = ['#6b7280', '#fca5a5', '#86efac', '#fde047', '#93c5fd', '#f0abfc', '#67e8f9', '#ffffff']
+const STANDARD_BG_COLORS = ['#1e1e1e', '#8b1a1a', '#6b7280', '#86efac', '#fde047', '#93c5fd', '#f0abfc', '#67e8f9', '#ffffff']
+const BRIGHT_BG_COLORS = ['#6b7280', '#fca5a5', '#86efac', '#fde047', '#93c5fd', '#f0abfc', '#67e8f9', '#ffffff']
+
+/**
+ * Validate RGB value is in 0-255 range
+ */
+function isValidRgb(r, g, b) {
+  return typeof r === 'number' && typeof g === 'number' && typeof b === 'number' &&
+         r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255
+}
 
 /**
  * Strip ANSI escape sequences from text
@@ -41,7 +51,7 @@ function ansiCodeToStyle(codes) {
       const r = parts[i + 2]
       const g = parts[i + 3]
       const b = parts[i + 4]
-      if (r !== undefined && g !== undefined && b !== undefined) {
+      if (isValidRgb(r, g, b)) {
         style += `color:rgb(${r},${g},${b});`
         i += 4
         continue
@@ -53,7 +63,7 @@ function ansiCodeToStyle(codes) {
       const r = parts[i + 2]
       const g = parts[i + 3]
       const b = parts[i + 4]
-      if (r !== undefined && g !== undefined && b !== undefined) {
+      if (isValidRgb(r, g, b)) {
         style += `background-color:rgb(${r},${g},${b});`
         i += 4
         continue
@@ -70,6 +80,10 @@ function ansiCodeToStyle(codes) {
           style += `color:${STANDARD_COLORS[code - 30]};`
         } else if (code >= 90 && code <= 97) {
           style += `color:${BRIGHT_COLORS[code - 90]};`
+        } else if (code >= 40 && code <= 47) {
+          style += `background-color:${STANDARD_BG_COLORS[code - 40]};`
+        } else if (code >= 100 && code <= 107) {
+          style += `background-color:${BRIGHT_BG_COLORS[code - 100]};`
         }
     }
   }
