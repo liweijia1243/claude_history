@@ -1,0 +1,266 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Theme Colors */
+:root {
+  --bg-page: #ffffff;
+  --bg-sidebar: #f9fafb;
+  --bg-card: #f3f4f6;
+  --bg-assistant: #f0f0f0;
+  --bg-user-bubble: #3b82f6;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+}
+
+.dark {
+  --bg-page: #0a0a0a;
+  --bg-sidebar: #111111;
+  --bg-card: #1a1a1a;
+  --bg-assistant: #1e1e1e;
+  --bg-user-bubble: #2563eb;
+  --text-primary: #e5e5e5;
+  --text-secondary: #9ca3af;
+  --border-color: #262626;
+}
+
+/* Base styles */
+body {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Message animations */
+.msg-enter-active {
+  transition: all 0.3s ease-out;
+}
+.msg-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* Prose customization for dark mode */
+.dark .prose {
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-primary);
+  --tw-prose-links: #60a5fa;
+  --tw-prose-bold: var(--text-primary);
+  --tw-prose-counters: var(--text-secondary);
+  --tw-prose-bullets: var(--text-secondary);
+  --tw-prose-hr: var(--border-color);
+  --tw-prose-quotes: var(--text-primary);
+  --tw-prose-quote-borders: #8b5cf6;
+  --tw-prose-captions: var(--text-secondary);
+  --tw-prose-code: #f0abfc;
+  --tw-prose-pre-code: #e5e5e5;
+  --tw-prose-pre-bg: #0a0a0a;
+  --tw-prose-th-borders: var(--border-color);
+  --tw-prose-td-borders: var(--border-color);
+}
+
+.prose {
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-primary);
+  --tw-prose-links: #2563eb;
+  --tw-prose-bold: var(--text-primary);
+  --tw-prose-counters: var(--text-secondary);
+  --tw-prose-bullets: var(--text-secondary);
+  --tw-prose-hr: var(--border-color);
+  --tw-prose-quotes: var(--text-primary);
+  --tw-prose-quote-borders: #8b5cf6;
+  --tw-prose-captions: var(--text-secondary);
+  --tw-prose-code: #9333ea;
+  --tw-prose-pre-code: #e5e5e5;
+  --tw-prose-pre-bg: #1f2937;
+  --tw-prose-th-borders: var(--border-color);
+  --tw-prose-td-borders: var(--border-color);
+}
+
+/* Code block styling - always dark background for better readability */
+.prose pre {
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-color);
+  padding: 1rem;
+  overflow-x: auto;
+  background-color: #1e1e1e !important;
+}
+
+.prose pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #d4d4d4;
+}
+
+/* Highlight.js overrides for consistency */
+.prose pre .hljs-comment,
+.prose pre .hljs-quote {
+  color: #6a9955;
+}
+
+.prose pre .hljs-keyword,
+.prose pre .hljs-selector-tag,
+.prose pre .hljs-addition {
+  color: #569cd6;
+}
+
+.prose pre .hljs-number,
+.prose pre .hljs-string,
+.prose pre .hljs-meta .hljs-meta-string,
+.prose pre .hljs-literal,
+.prose pre .hljs-doctag,
+.prose pre .hljs-regexp {
+  color: #ce9178;
+}
+
+.prose pre .hljs-title,
+.prose pre .hljs-section,
+.prose pre .hljs-name,
+.prose pre .hljs-selector-id,
+.prose pre .hljs-selector-class {
+  color: #dcdcaa;
+}
+
+.prose pre .hljs-attribute,
+.prose pre .hljs-attr,
+.prose pre .hljs-variable,
+.prose pre .hljs-template-variable,
+.prose pre .hljs-class .hljs-title,
+.prose pre .hljs-type {
+  color: #4ec9b0;
+}
+
+.prose pre .hljs-symbol,
+.prose pre .hljs-bullet,
+.prose pre .hljs-subst,
+.prose pre .hljs-meta,
+.prose pre .hljs-meta .hljs-keyword,
+.prose pre .hljs-selector-attr,
+.prose pre .hljs-selector-pseudo,
+.prose pre .hljs-link {
+  color: #d4d4d4;
+}
+
+.prose pre .hljs-built_in,
+.prose pre .hljs-deletion {
+  color: #ce9178;
+}
+
+.prose pre .hljs-emphasis {
+  font-style: italic;
+}
+
+.prose pre .hljs-strong {
+  font-weight: bold;
+}
+
+/* Inline code styling */
+.prose code:not(pre code) {
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.375rem;
+  font-weight: 400;
+  background-color: var(--bg-card);
+  color: #9333ea;
+  font-size: 0.875em;
+}
+
+.dark .prose code:not(pre code) {
+  color: #f0abfc;
+}
+
+/* Quote styling */
+.prose blockquote {
+  border-left-width: 3px;
+  border-left-color: #8b5cf6;
+  font-style: normal;
+  padding-left: 1rem;
+  margin-left: 0;
+}
+
+/* Table styling */
+.prose table {
+  border-collapse: collapse;
+}
+
+.prose th,
+.prose td {
+  padding: 0.5rem 0.75rem;
+}
+
+.prose tbody tr:nth-child(odd) {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+/* Link styling */
+.prose a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose a:hover {
+  color: #8b5cf6;
+}
+
+/* Thinking block gradient */
+.thinking-gradient {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(59, 130, 246, 0.05));
+}
+
+.dark .thinking-gradient {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.05));
+}
+
+/* Terminal style for bash output */
+.terminal-output {
+  background-color: #0a0a0a;
+  color: #e5e5e5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+/* Expand/collapse animation */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.2s ease-out;
+  overflow: hidden;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.expand-enter-to,
+.expand-leave-from {
+  opacity: 1;
+  max-height: 2000px;
+}
