@@ -200,7 +200,9 @@ watch(page, fetchHistory)
   </div>
 
   <!-- Results area: show when active (focused or has search content) -->
+  <!-- @mousedown.prevent prevents blur on the search input when clicking results/pagination -->
   <template v-if="active">
+    <div @mousedown.prevent>
     <div v-if="loading" class="text-[var(--text-secondary)] py-8 text-center">Loading...</div>
 
     <div v-else class="space-y-8">
@@ -277,6 +279,7 @@ watch(page, fetchHistory)
       >
         Next
       </button>
+    </div>
     </div>
   </template>
 </template>
