@@ -1,6 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import hljs from 'highlight.js'
+import hljsDefineVue from '../utils/hljsVue.js'
+
+// Register Vue language support
+hljs.registerLanguage('vue', hljsDefineVue)
 
 const props = defineProps({
   oldString: {
