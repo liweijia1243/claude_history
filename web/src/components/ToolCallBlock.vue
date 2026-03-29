@@ -18,19 +18,8 @@ function isExpanded(idx) {
   return expanded.value[idx] || false
 }
 
-// Build a map for O(1) lookup instead of repeated .find()
-const resultMap = computed(() => {
-  const map = {}
-  if (props.toolResults) {
-    for (const r of props.toolResults) {
-      map[r.tool_use_id] = r
-    }
-  }
-  return map
-})
-
 function toolResultFor(useId) {
-  return resultMap.value[useId]
+  return props.toolResults?.find(r => r.tool_use_id === useId)
 }
 
 function resultPreview(result) {

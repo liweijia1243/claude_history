@@ -193,10 +193,11 @@ def reconstruct_conversation(messages: list[dict], session_id: str = "") -> list
 
                     # Extract structuredPatch from top-level toolUseResult
                     raw_result = msg.get("toolUseResult")
-                    if raw_result and isinstance(raw_result, dict) and assistant_buffer is not None:
+                    if raw_result and isinstance(raw_result, dict):
                         structured_patch = raw_result.get("structuredPatch")
                         file_path = raw_result.get("filePath", "")
-                        if structured_patch:
+                        if structured_patch and assistant_buffer is not None:
+                            # Find the matching tool_use by file_path
                             for tool_use in assistant_buffer.get("tool_uses", []):
                                 if tool_use.get("name") == "Edit":
                                     tool_input = tool_use.get("input", {})
