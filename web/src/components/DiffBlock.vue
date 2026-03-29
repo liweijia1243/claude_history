@@ -105,12 +105,6 @@ function buildFromStructuredPatch(patches) {
       }
     }
 
-    // Add hunk separator if there are more patches
-    if (patchIdx < patches.length - 1) {
-      result.push({
-        type: 'separator'
-      })
-    }
   }
 
   return result
@@ -204,10 +198,10 @@ const diffLines = computed(() => {
   const lines = rawDiffLines.value
   if (lines.length === 0) return []
 
-  // Find indices of lines that are changes (add/remove) or separators
+  // Find indices of lines that are changes (add/remove)
   const changeIndices = lines
     .map((line, idx) => ({ line, idx }))
-    .filter(({ line }) => line.type === 'add' || line.type === 'remove' || line.type === 'separator')
+    .filter(({ line }) => line.type === 'add' || line.type === 'remove')
     .map(({ idx }) => idx)
 
   // If no changes, show first few lines only
@@ -219,12 +213,6 @@ const diffLines = computed(() => {
   const includeIndices = new Set()
 
   changeIndices.forEach(changeIdx => {
-    const line = lines[changeIdx]
-    // For separators, just include them directly
-    if (line.type === 'separator') {
-      includeIndices.add(changeIdx)
-      return
-    }
     // Include the change itself
     includeIndices.add(changeIdx)
     // Include context lines before
@@ -249,7 +237,7 @@ const diffLines = computed(() => {
 
   // Build result with collapse markers between gaps
   const result = []
-  const sortedIndices = Array.from(includeIndices).filter(idx => lines[idx].type !== 'separator').sort((a, b) => a - b)
+  const sortedIndices = Array.from(includeIndices).sort((a, b) => a - b)
   let lastIncludedIdx = -1
 
   // Process sorted indices, adding collapse markers for gaps
@@ -272,8 +260,8 @@ const diffLines = computed(() => {
 })
 
 const stats = computed(() => {
-  const added = diffLines.value.filter(l => l.type === 'add').length
-  const removed = diffLines.value.filter(l => l.type === 'remove').length
+  const added = rawDiffLines.value.filter(l => l.type === 'add').length
+  const removed = rawDiffLines.value.filter(l => l.type === 'remove').length
   return { added, removed }
 })
 
