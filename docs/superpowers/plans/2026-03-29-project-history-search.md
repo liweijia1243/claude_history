@@ -30,7 +30,16 @@
 | `projectPath` | `String` | `''` | 传给 API `project` 参数的实际路径 |
 | `syncUrl` | `Boolean` | `true` | 是否将搜索词同步到 URL query |
 | `showProject` | `Boolean` | `true` | 搜索结果中是否显示项目标签 |
-| `fetchOnMount` | `Boolean` | `true` | 是否在挂载时立即加载数据（History 页需要，ProjectDetail 不需要） |
+| `initiallyActive` | `Boolean` | `true` | 挂载时是否处于激活状态（History 页需要，ProjectDetail 不需要） |
+
+**交互行为：**
+
+- `initiallyActive=true`（History 页）：挂载即加载数据，结果始终显示
+- `initiallyActive=false`（ProjectDetail）：
+  - 搜索栏获得焦点 → 加载全部命令 → 显示结果 → 隐藏 session 列表
+  - 用户输入 → 过滤结果
+  - 用户清空输入并点击外部（blur）→ 恢复显示 session 列表
+  - blur 后 200ms 延迟（允许点击搜索结果不触发隐藏）
 
 ```vue
 <script setup>
@@ -41,7 +50,7 @@ const props = defineProps({
   projectPath: { type: String, default: '' },
   syncUrl: { type: Boolean, default: true },
   showProject: { type: Boolean, default: true },
-  fetchOnMount: { type: Boolean, default: true },
+  initiallyActive: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['search-active'])
@@ -51,8 +60,11 @@ const total = ref(0)
 const page = ref(1)
 const pages = ref(0)
 const search = ref('')
-const loading = ref(true)
+const loading = ref(false)
 const searchTimeout = ref(null)
+const blurTimeout = ref(null)
+const active = ref(props.initiallyActive)
+const hasLoaded = ref(false)
 
 const route = useRoute()
 const router = useRouter()
@@ -80,18 +92,41 @@ async function fetchHistory() {
   total.value = data.total
   pages.value = data.pages
   loading.value = false
+  hasLoaded.value = true
 }
 
 function onSearchInput() {
   clearTimeout(searchTimeout.value)
+  clearTimeout(blurTimeout.value)
   searchTimeout.value = setTimeout(() => {
     page.value = 1
     if (props.syncUrl) {
       router.replace({ path: '/history', query: search.value ? { q: search.value } : {} })
     }
-    emit('search-active', !!search.value)
     fetchHistory()
   }, 300)
+}
+
+function onFocus() {
+  clearTimeout(blurTimeout.value)
+  if (!active.value) {
+    active.value = true
+    emit('search-active', true)
+  }
+  if (!hasLoaded.value) {
+    fetchHistory()
+  }
+}
+
+function onBlur() {
+  clearTimeout(blurTimeout.value)
+  // Delay to allow clicking on search results without triggering hide
+  blurTimeout.value = setTimeout(() => {
+    if (!search.value) {
+      active.value = false
+      emit('search-active', false)
+    }
+  }, 200)
 }
 
 function handleClick(item) {
@@ -186,10 +221,8 @@ const groupedItems = computed(() => {
 })
 
 onMounted(() => {
-  if (props.fetchOnMount) {
+  if (props.initiallyActive) {
     fetchHistory()
-  } else {
-    loading.value = false
   }
 })
 watch(page, fetchHistory)
@@ -203,14 +236,16 @@ watch(page, fetchHistory)
       <input
         v-model="search"
         @input="onSearchInput"
+        @focus="onFocus"
+        @blur="onBlur"
         placeholder="Search commands..."
         class="w-full bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-blue-500/50 transition-colors"
       />
     </div>
   </div>
 
-  <!-- Results area: only show when a search has been performed or fetchOnMount is true -->
-  <template v-if="search || fetchOnMount">
+  <!-- Results area: show when active (focused or has search content) -->
+  <template v-if="active">
     <div v-if="loading" class="text-[var(--text-secondary)] py-8 text-center">Loading...</div>
 
     <div v-else class="space-y-8">
@@ -326,7 +361,7 @@ import HistorySearch from '../components/HistorySearch.vue'
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">History</h1>
     </div>
 
-    <HistorySearch :sync-url="true" :show-project="true" :fetch-on-mount="true" />
+    <HistorySearch :sync-url="true" :show-project="true" :initially-active="true" />
   </div>
 </template>
 ```
@@ -439,7 +474,7 @@ function onSearchActive(active) {
           :project-path="project?.path || ''"
           :sync-url="false"
           :show-project="false"
-          :fetch-on-mount="false"
+          :initially-active="false"
           @search-active="onSearchActive"
         />
       </div>
@@ -480,9 +515,11 @@ function onSearchActive(active) {
 
 关键设计点：
 - 单个 HistorySearch 实例，始终渲染（搜索栏始终可见）
-- `fetchOnMount=false`：不在挂载时加载全部历史，只在用户输入搜索词时加载
-- 搜索有内容时（`searchActive=true`），HistorySearch 内部显示搜索结果，session 列表被隐藏
-- 搜索清空时，HistorySearch 结果区为空，session 列表恢复显示
+- `initiallyActive=false`：挂载时不加载数据，搜索栏为纯占位状态
+- 用户点击搜索栏（focus）→ `onFocus` 触发 → 加载全部命令 → `search-active` 事件 → 隐藏 session 列表
+- 用户输入搜索词 → 过滤已加载的数据
+- 用户清空搜索词并点击外部（blur）→ 200ms 后 → `search-active` 事件 → 恢复 session 列表
+- blur 有 200ms 延迟，确保用户点击搜索结果时不会误触发隐藏
 
 - [ ] **Step 2: 验证前端构建通过**
 
@@ -573,10 +610,13 @@ Expected: 后端 8787 端口启动，前端 5173 端口启动
 
 1. 打开 http://localhost:5173/projects
 2. 进入一个 project
-3. 验证搜索栏显示在 session 列表上方
-4. 输入搜索词，验证 session 列表被搜索结果替换
-5. 验证搜索结果中不显示项目标签
-6. 清空搜索栏，验证 session 列表恢复显示
-7. 双击搜索结果，验证跳转到对话页并定位
-8. 验证对话页显示 "Project" 返回按钮
-9. 点击 "Project" 返回按钮，验证回到 project 详情页
+3. 验证搜索栏显示在 session 列表上方，session 列表正常显示
+4. 点击搜索栏（不输入任何内容）→ 验证 session 列表被隐藏，显示该 project 的全部历史命令（按时间排序）
+5. 输入搜索词 → 验证结果被过滤
+6. 清空搜索词 → 验证全部命令仍然显示
+7. 点击搜索栏外部区域 → 验证恢复显示 session 列表
+8. 再次点击搜索栏 → 验证命令立即显示（无需重新加载）
+9. 验证搜索结果中不显示项目标签
+10. 双击搜索结果 → 验证跳转到对话页并定位到消息
+11. 验证对话页显示 "Project" 返回按钮
+12. 点击 "Project" 返回按钮 → 验证回到 project 详情页
