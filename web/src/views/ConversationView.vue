@@ -37,6 +37,7 @@ const conversation = ref([])
 const subagents = ref([])
 const loading = ref(true)
 const fromHistory = computed(() => route.query.source === 'history')
+const fromProject = computed(() => route.query.source === 'project')
 const totalRaw = ref(0)
 const showThinking = ref(true)
 const selectedSubagent = ref(null)
@@ -154,6 +155,11 @@ function goBackToHistory() {
   const query = route.query.q ? { q: route.query.q } : {}
   router.push({ path: '/history', query })
 }
+
+function goBackToProject() {
+  const query = route.query.q ? { q: route.query.q } : {}
+  router.push({ path: `/projects/${props.projectId}`, query })
+}
 </script>
 
 <template>
@@ -174,6 +180,14 @@ function goBackToHistory() {
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         History
+      </button>
+      <button
+        v-if="fromProject"
+        @click="goBackToProject"
+        class="flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        Project
       </button>
       <div class="flex-1 min-w-0">
         <span class="text-sm text-[var(--text-secondary)] font-mono">{{ sessionId?.substring(0, 16) }}...</span>
