@@ -22,8 +22,14 @@ const props = defineProps({
   startLine: {
     type: Number,
     default: null
+  },
+  structuredPatch: {
+    type: Array,
+    default: null
   }
 })
+
+const CONTEXT_LINES = 3
 
 // Detect language from file path
 const language = computed(() => {
@@ -53,12 +59,42 @@ const language = computed(() => {
   return langMap[ext] || ext
 })
 
-// Simple diff algorithm - compute unified diff-style output
-const diffLines = computed(() => {
-  const oldLines = props.oldString ? props.oldString.split('\n') : []
-  const newLines = props.newString ? props.newString.split('\n') : []
+// Build diff lines from structuredPatch (preferred)
+function buildFromStructuredPatch(patches) {
+  const result = []
 
-  // Simple LCS-based diff
+  for (let patchIdx = 0; patchIdx < patches.length; patchIdx++) {
+    const patch = patches[patchIdx]
+    const { oldStart, newStart, lines } = patch
+
+    let oldLineNum = oldStart
+    let newLineNum = newStart
+
+    for (const line of lines) {
+      const prefix = line[0]
+      const content = line.slice(1)
+
+      if (prefix === ' ') {
+        result.push({ type: 'context', content, oldLine: oldLineNum, newLine: newLineNum })
+        oldLineNum++
+        newLineNum++
+      } else if (prefix === '-') {
+        result.push({ type: 'remove', content, oldLine: oldLineNum, newLine: null })
+        oldLineNum++
+      } else if (prefix === '+') {
+        result.push({ type: 'add', content, oldLine: null, newLine: newLineNum })
+        newLineNum++
+      }
+    }
+  }
+
+  return result
+}
+
+// Fallback: Simple prefix/suffix diff algorithm
+function buildFromStrings(oldString, newString, startLine) {
+  const oldLines = oldString ? oldString.split('\n') : []
+  const newLines = newString ? newString.split('\n') : []
   const result = []
 
   // Find common prefix and suffix
@@ -76,9 +112,8 @@ const diffLines = computed(() => {
     suffixLen++
   }
 
-  // Calculate base line numbers
-  const baseOldLine = props.startLine ?? 1
-  const baseNewLine = props.startLine ?? 1
+  const baseOldLine = startLine ?? 1
+  const baseNewLine = startLine ?? 1
 
   // Add common prefix (context)
   for (let i = 0; i < prefixLen; i++) {
@@ -127,6 +162,65 @@ const diffLines = computed(() => {
   }
 
   return result
+}
+
+// Raw diff lines (before context limiting)
+const rawDiffLines = computed(() => {
+  // Prefer structuredPatch if available
+  if (props.structuredPatch && props.structuredPatch.length > 0) {
+    return buildFromStructuredPatch(props.structuredPatch)
+  }
+  // Fallback to string-based diff
+  return buildFromStrings(props.oldString, props.newString, props.startLine)
+})
+
+// Limit context to 3 lines around changes
+const diffLines = computed(() => {
+  const lines = rawDiffLines.value
+  if (lines.length === 0) return []
+
+  const changeIndices = []
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].type === 'add' || lines[i].type === 'remove') {
+      changeIndices.push(i)
+    }
+  }
+
+  if (changeIndices.length === 0) {
+    return lines.slice(0, CONTEXT_LINES + 1)
+  }
+
+  const includeIndices = new Set()
+
+  for (const changeIdx of changeIndices) {
+    includeIndices.add(changeIdx)
+    for (let i = 1; i <= CONTEXT_LINES; i++) {
+      const before = changeIdx - i
+      if (before >= 0 && lines[before].type === 'context') includeIndices.add(before)
+      else break
+    }
+    for (let i = 1; i <= CONTEXT_LINES; i++) {
+      const after = changeIdx + i
+      if (after < lines.length && lines[after].type === 'context') includeIndices.add(after)
+      else break
+    }
+  }
+
+  // Build result with collapse markers between gaps
+  const sorted = Array.from(includeIndices).sort((a, b) => a - b)
+  const result = []
+  let lastIdx = -1
+
+  for (const idx of sorted) {
+    const gap = idx - lastIdx
+    if (gap > 1 && lastIdx >= 0) {
+      result.push({ type: 'collapse', linesSkipped: gap - 1 })
+    }
+    result.push(lines[idx])
+    lastIdx = idx
+  }
+
+  return result
 })
 
 const stats = computed(() => {
@@ -140,26 +234,23 @@ const highlightedLines = ref({})
 
 onMounted(() => {
   if (language.value && hljs.getLanguage(language.value)) {
-    // Highlight the full old and new strings, then split
     try {
       const oldHighlighted = hljs.highlight(props.oldString, { language: language.value }).value
       const newHighlighted = hljs.highlight(props.newString, { language: language.value }).value
 
       const oldLinesHl = oldHighlighted.split('\n')
-      const newLinesHl = newHighlighted.split('\n')
-
-      // Map content to highlighted content
       const oldLinesRaw = props.oldString.split('\n')
-      const newLinesRaw = props.newString.split('\n')
-
       oldLinesRaw.forEach((line, i) => {
         if (oldLinesHl[i]) {
-          highlightedLines.value[line] = oldLinesHl[i]
+          highlightedLines.value[`o:${i}:${line}`] = oldLinesHl[i]
         }
       })
+
+      const newLinesHl = newHighlighted.split('\n')
+      const newLinesRaw = props.newString.split('\n')
       newLinesRaw.forEach((line, i) => {
         if (newLinesHl[i]) {
-          highlightedLines.value[line] = newLinesHl[i]
+          highlightedLines.value[`n:${i}:${line}`] = newLinesHl[i]
         }
       })
     } catch (e) {
@@ -169,7 +260,16 @@ onMounted(() => {
 })
 
 function getHighlightedContent(line) {
-  return highlightedLines.value[line] || escapeHtml(line)
+  const map = highlightedLines.value
+  if (line.oldLine != null) {
+    const key = `o:${line.oldLine - 1}:${line.content}`
+    if (map[key]) return map[key]
+  }
+  if (line.newLine != null) {
+    const key = `n:${line.newLine - 1}:${line.content}`
+    if (map[key]) return map[key]
+  }
+  return escapeHtml(line.content)
 }
 
 function escapeHtml(text) {
@@ -200,56 +300,66 @@ function escapeHtml(text) {
     <div class="overflow-x-auto">
       <table class="w-full font-mono text-[13px] leading-[1.5]">
         <tbody>
-          <tr
-            v-for="(line, i) in diffLines"
-            :key="i"
-            :class="[
-              line.type === 'remove' ? 'bg-[#f87171]/10' : '',
-              line.type === 'add' ? 'bg-[#4ade80]/10' : ''
-            ]"
-          >
-            <!-- Old line number -->
-            <td
+          <template v-for="(line, i) in diffLines" :key="i">
+            <!-- Collapse marker row -->
+            <tr v-if="line.type === 'collapse'" class="collapse-marker bg-[#1f2937]">
+              <td colspan="4" class="text-center py-1.5 text-[#6b7280] select-none">
+                <span class="opacity-60">...</span>
+                <span class="text-[11px] ml-1.5 opacity-50">({{ line.linesSkipped }} lines)</span>
+              </td>
+            </tr>
+
+            <!-- Regular diff line row -->
+            <tr
+              v-else
               :class="[
-                'w-10 px-2 text-right select-none border-r',
-                line.type === 'remove' ? 'text-[#f87171]/50 bg-[#f87171]/5' : '',
-                line.type === 'add' ? 'text-transparent border-[#374151]' : 'text-[#6b7280] border-[#374151]',
-                line.type === 'context' ? 'text-[#6b7280] border-[#374151]' : ''
+                line.type === 'remove' ? 'bg-[#f87171]/10' : '',
+                line.type === 'add' ? 'bg-[#4ade80]/10' : ''
               ]"
             >
-              {{ line.oldLine ?? '' }}
-            </td>
-            <!-- New line number -->
-            <td
-              :class="[
-                'w-10 px-2 text-right select-none border-r',
-                line.type === 'add' ? 'text-[#4ade80]/50 bg-[#4ade80]/5' : '',
-                line.type === 'remove' ? 'text-transparent border-[#374151]' : 'text-[#6b7280] border-[#374151]',
-                line.type === 'context' ? 'text-[#6b7280] border-[#374151]' : ''
-              ]"
-            >
-              {{ line.newLine ?? '' }}
-            </td>
-            <!-- +/- sign -->
-            <td
-              :class="[
-                'w-6 text-center select-none',
-                line.type === 'remove' ? 'text-[#f87171] bg-[#f87171]/10' : '',
-                line.type === 'add' ? 'text-[#4ade80] bg-[#4ade80]/10' : 'text-[#4b5563]'
-              ]"
-            >
-              {{ line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' ' }}
-            </td>
-            <!-- Content with syntax highlighting -->
-            <td
-              :class="[
-                'px-3 whitespace-pre',
-                line.type === 'remove' ? 'text-[#fca5a5]' : '',
-                line.type === 'add' ? 'text-[#86efac]' : 'text-[#d1d5db]'
-              ]"
-              v-html="getHighlightedContent(line.content)"
-            ></td>
-          </tr>
+              <!-- Old line number -->
+              <td
+                :class="[
+                  'w-10 px-2 text-right select-none border-r',
+                  line.type === 'remove' ? 'text-[#f87171]/50 bg-[#f87171]/5' : '',
+                  line.type === 'add' ? 'text-transparent border-[#374151]' : 'text-[#6b7280] border-[#374151]',
+                  line.type === 'context' ? 'text-[#6b7280] border-[#374151]' : ''
+                ]"
+              >
+                {{ line.oldLine ?? '' }}
+              </td>
+              <!-- New line number -->
+              <td
+                :class="[
+                  'w-10 px-2 text-right select-none border-r',
+                  line.type === 'add' ? 'text-[#4ade80]/50 bg-[#4ade80]/5' : '',
+                  line.type === 'remove' ? 'text-transparent border-[#374151]' : 'text-[#6b7280] border-[#374151]',
+                  line.type === 'context' ? 'text-[#6b7280] border-[#374151]' : ''
+                ]"
+              >
+                {{ line.newLine ?? '' }}
+              </td>
+              <!-- +/- sign -->
+              <td
+                :class="[
+                  'w-6 text-center select-none',
+                  line.type === 'remove' ? 'text-[#f87171] bg-[#f87171]/10' : '',
+                  line.type === 'add' ? 'text-[#4ade80] bg-[#4ade80]/10' : 'text-[#4b5563]'
+                ]"
+              >
+                {{ line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' ' }}
+              </td>
+              <!-- Content with syntax highlighting -->
+              <td
+                :class="[
+                  'px-3 whitespace-pre',
+                  line.type === 'remove' ? 'text-[#fca5a5]' : '',
+                  line.type === 'add' ? 'text-[#86efac]' : 'text-[#d1d5db]'
+                ]"
+                v-html="getHighlightedContent(line.content)"
+              ></td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -269,6 +379,13 @@ table {
 td {
   vertical-align: top;
   border: none;
+}
+
+/* Collapse marker styling */
+.collapse-marker td {
+  background: #1f2937;
+  border-top: 1px dashed #374151;
+  border-bottom: 1px dashed #374151;
 }
 
 /* Syntax highlighting colors - override for diff context */

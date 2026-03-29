@@ -18,8 +18,19 @@ function isExpanded(idx) {
   return expanded.value[idx] || false
 }
 
+// Build a map for O(1) lookup instead of repeated .find()
+const resultMap = computed(() => {
+  const map = {}
+  if (props.toolResults) {
+    for (const r of props.toolResults) {
+      map[r.tool_use_id] = r
+    }
+  }
+  return map
+})
+
 function toolResultFor(useId) {
-  return props.toolResults?.find(r => r.tool_use_id === useId)
+  return resultMap.value[useId]
 }
 
 function resultPreview(result) {
@@ -135,6 +146,7 @@ function formatLabel(tool) {
             :new-string="tool.input?.new_string || ''"
             :file-path="tool.input?.file_path || ''"
             :start-line="tool.startLine"
+            :structured-patch="tool.structuredPatch"
           />
 
           <!-- Write tool - show code block -->
@@ -163,6 +175,12 @@ function formatLabel(tool) {
               <div class="text-xs text-emerald-400/60 mb-1">$ {{ tool.input?.command }}</div>
               <pre class="whitespace-pre-wrap break-words max-h-80 overflow-auto">{{ resultPreview(toolResultFor(tool.id)) }}</pre>
             </div>
+            <!-- Read result - show as code block -->
+            <CodeBlock
+              v-else-if="tool.name === 'Read'"
+              :code="resultPreview(toolResultFor(tool.id))"
+              :language="tool.input?.file_path?.split('.').pop() || 'text'"
+            />
             <!-- Regular result -->
             <div v-else class="bg-[var(--bg-card)] p-3">
               <div class="text-xs font-semibold mb-2 uppercase tracking-wide flex items-center gap-2">

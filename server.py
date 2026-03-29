@@ -190,6 +190,19 @@ def reconstruct_conversation(messages: list[dict], session_id: str = "") -> list
                                     "is_error": c.get("is_error", False),
                                 })
                         assistant_buffer["tool_results"] = tool_results
+
+                    # Extract structuredPatch from top-level toolUseResult
+                    raw_result = msg.get("toolUseResult")
+                    if raw_result and isinstance(raw_result, dict) and assistant_buffer is not None:
+                        structured_patch = raw_result.get("structuredPatch")
+                        file_path = raw_result.get("filePath", "")
+                        if structured_patch:
+                            for tool_use in assistant_buffer.get("tool_uses", []):
+                                if tool_use.get("name") == "Edit":
+                                    tool_input = tool_use.get("input", {})
+                                    if tool_input.get("file_path") == file_path:
+                                        tool_use["structuredPatch"] = structured_patch
+                                        break
                     continue
 
             # Regular user message
