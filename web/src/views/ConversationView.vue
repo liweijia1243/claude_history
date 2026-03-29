@@ -7,6 +7,7 @@ import hljs from 'highlight.js'
 import ToolCallBlock from '../components/ToolCallBlock.vue'
 import ThinkingBlock from '../components/ThinkingBlock.vue'
 import CodeBlock from '../components/CodeBlock.vue'
+import { stripAnsi } from '../utils/ansiToHtml.js'
 
 // Custom renderer for code blocks
 const renderer = new marked.Renderer()
@@ -65,7 +66,9 @@ function formatTime(ts) {
 
 function renderMarkdown(text) {
   if (!text) return ''
-  return marked.parse(text)
+  // Strip ANSI escape sequences before markdown parsing
+  const cleanText = stripAnsi(text)
+  return marked.parse(cleanText)
 }
 
 function getModelShort(model) {
