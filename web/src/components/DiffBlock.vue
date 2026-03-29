@@ -71,20 +71,45 @@ function buildFromStructuredPatch(patches) {
     let newLineNum = newStart
 
     for (const line of lines) {
-      const prefix = line[0]
+      const prefix = line[0]  // ' ', '-', '+'
       const content = line.slice(1)
 
       if (prefix === ' ') {
-        result.push({ type: 'context', content, oldLine: oldLineNum, newLine: newLineNum })
+        // Context line
+        result.push({
+          type: 'context',
+          content: content,
+          oldLine: oldLineNum,
+          newLine: newLineNum
+        })
         oldLineNum++
         newLineNum++
       } else if (prefix === '-') {
-        result.push({ type: 'remove', content, oldLine: oldLineNum, newLine: null })
+        // Removed line
+        result.push({
+          type: 'remove',
+          content: content,
+          oldLine: oldLineNum,
+          newLine: null
+        })
         oldLineNum++
       } else if (prefix === '+') {
-        result.push({ type: 'add', content, oldLine: null, newLine: newLineNum })
+        // Added line
+        result.push({
+          type: 'add',
+          content: content,
+          oldLine: null,
+          newLine: newLineNum
+        })
         newLineNum++
       }
+    }
+
+    // Add hunk separator if there are more patches
+    if (patchIdx < patches.length - 1) {
+      result.push({
+        type: 'separator'
+      })
     }
   }
 
@@ -179,45 +204,68 @@ const diffLines = computed(() => {
   const lines = rawDiffLines.value
   if (lines.length === 0) return []
 
-  const changeIndices = []
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].type === 'add' || lines[i].type === 'remove') {
-      changeIndices.push(i)
-    }
-  }
+  // Find indices of lines that are changes (add/remove) or separators
+  const changeIndices = lines
+    .map((line, idx) => ({ line, idx }))
+    .filter(({ line }) => line.type === 'add' || line.type === 'remove' || line.type === 'separator')
+    .map(({ idx }) => idx)
 
+  // If no changes, show first few lines only
   if (changeIndices.length === 0) {
-    return lines.slice(0, CONTEXT_LINES + 1)
+    return lines.slice(0, 10)
   }
 
+  // Calculate which line indices to include (change + context)
   const includeIndices = new Set()
 
-  for (const changeIdx of changeIndices) {
+  changeIndices.forEach(changeIdx => {
+    const line = lines[changeIdx]
+    // For separators, just include them directly
+    if (line.type === 'separator') {
+      includeIndices.add(changeIdx)
+      return
+    }
+    // Include the change itself
     includeIndices.add(changeIdx)
+    // Include context lines before
     for (let i = 1; i <= CONTEXT_LINES; i++) {
-      const before = changeIdx - i
-      if (before >= 0 && lines[before].type === 'context') includeIndices.add(before)
-      else break
+      const idx = changeIdx - i
+      if (idx >= 0 && lines[idx].type === 'context') {
+        includeIndices.add(idx)
+      } else {
+        break
+      }
     }
+    // Include context lines after
     for (let i = 1; i <= CONTEXT_LINES; i++) {
-      const after = changeIdx + i
-      if (after < lines.length && lines[after].type === 'context') includeIndices.add(after)
-      else break
+      const idx = changeIdx + i
+      if (idx < lines.length && lines[idx].type === 'context') {
+        includeIndices.add(idx)
+      } else {
+        break
+      }
     }
-  }
+  })
 
   // Build result with collapse markers between gaps
-  const sorted = Array.from(includeIndices).sort((a, b) => a - b)
   const result = []
-  let lastIdx = -1
+  const sortedIndices = Array.from(includeIndices).filter(idx => lines[idx].type !== 'separator').sort((a, b) => a - b)
+  let lastIncludedIdx = -1
 
-  for (const idx of sorted) {
-    const gap = idx - lastIdx
-    if (gap > 1 && lastIdx >= 0) {
-      result.push({ type: 'collapse', linesSkipped: gap - 1 })
+  // Process sorted indices, adding collapse markers for gaps
+  for (const idx of sortedIndices) {
+    const gap = idx - lastIncludedIdx
+
+    // Add collapse marker if there's a gap (more than 1 line skipped)
+    if (gap > 1 && lastIncludedIdx >= 0) {
+      result.push({
+        type: 'collapse',
+        linesSkipped: gap - 1
+      })
     }
+
     result.push(lines[idx])
-    lastIdx = idx
+    lastIncludedIdx = idx
   }
 
   return result
@@ -234,23 +282,26 @@ const highlightedLines = ref({})
 
 onMounted(() => {
   if (language.value && hljs.getLanguage(language.value)) {
+    // Highlight the full old and new strings, then split
     try {
       const oldHighlighted = hljs.highlight(props.oldString, { language: language.value }).value
       const newHighlighted = hljs.highlight(props.newString, { language: language.value }).value
 
       const oldLinesHl = oldHighlighted.split('\n')
+      const newLinesHl = newHighlighted.split('\n')
+
+      // Map content to highlighted content
       const oldLinesRaw = props.oldString.split('\n')
+      const newLinesRaw = props.newString.split('\n')
+
       oldLinesRaw.forEach((line, i) => {
         if (oldLinesHl[i]) {
-          highlightedLines.value[`o:${i}:${line}`] = oldLinesHl[i]
+          highlightedLines.value[line] = oldLinesHl[i]
         }
       })
-
-      const newLinesHl = newHighlighted.split('\n')
-      const newLinesRaw = props.newString.split('\n')
       newLinesRaw.forEach((line, i) => {
         if (newLinesHl[i]) {
-          highlightedLines.value[`n:${i}:${line}`] = newLinesHl[i]
+          highlightedLines.value[line] = newLinesHl[i]
         }
       })
     } catch (e) {
@@ -260,16 +311,7 @@ onMounted(() => {
 })
 
 function getHighlightedContent(line) {
-  const map = highlightedLines.value
-  if (line.oldLine != null) {
-    const key = `o:${line.oldLine - 1}:${line.content}`
-    if (map[key]) return map[key]
-  }
-  if (line.newLine != null) {
-    const key = `n:${line.newLine - 1}:${line.content}`
-    if (map[key]) return map[key]
-  }
-  return escapeHtml(line.content)
+  return highlightedLines.value[line] || escapeHtml(line)
 }
 
 function escapeHtml(text) {
