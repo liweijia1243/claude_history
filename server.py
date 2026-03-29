@@ -66,7 +66,7 @@ def find_string_line(content: str, search_string: str) -> int | None:
 
 def build_file_timeline(messages: list[dict]) -> dict:
     """Build timeline of file states from file-history-snapshot messages."""
-    file_timeline = {}  # file_path -> [{"message_id", "backup_file", "time", "idx"}]
+    file_timeline = {}  # file_path -> [{"backup_file", "time", "idx"}]
 
     for idx, msg in enumerate(messages):
         if msg.get("type") != "file-history-snapshot":
@@ -74,12 +74,13 @@ def build_file_timeline(messages: list[dict]) -> dict:
 
         snapshot = msg.get("snapshot", {})
         backups = snapshot.get("trackedFileBackups", {})
-        message_id = msg.get("messageId")
 
         for file_path, info in backups.items():
+            backup_file = info.get("backupFileName")
+            if not backup_file:  # Skip entries without actual backups
+                continue
             file_timeline.setdefault(file_path, []).append({
-                "message_id": message_id,
-                "backup_file": info.get("backupFileName"),
+                "backup_file": backup_file,
                 "time": info.get("backupTime"),
                 "idx": idx
             })
@@ -88,13 +89,26 @@ def build_file_timeline(messages: list[dict]) -> dict:
 
 
 def find_state_before(timeline: dict, file_path: str, current_idx: int) -> dict | None:
-    """Find the most recent file state before the given message index."""
+    """Find the most recent file state before the given message index.
+
+    Uses suffix matching: if exact file_path not found, tries to match
+    by checking if any timeline key is a suffix of the edit's file_path.
+    """
     states = timeline.get(file_path, [])
+
+    # Try suffix matching if exact match fails
+    if not states:
+        for key in timeline:
+            # Check if snapshot path (e.g., "server.py") matches end of edit path
+            if file_path.endswith("/" + key) or file_path.endswith(key):
+                states = timeline[key]
+                break
+
     before = [s for s in states if s["idx"] < current_idx]
     return max(before, key=lambda s: s["idx"]) if before else None
 
 
-def enrich_tool_uses_with_line_numbers(messages: list[dict]) -> list[dict]:
+def enrich_tool_uses_with_line_numbers(messages: list[dict], session_id: str = "") -> list[dict]:
     """Add startLine to Edit tool uses based on file-history snapshots."""
     file_timeline = build_file_timeline(messages)
 
@@ -122,29 +136,32 @@ def enrich_tool_uses_with_line_numbers(messages: list[dict]) -> list[dict]:
             if not state:
                 continue
 
-            backup_path = CLAUDE_DIR / "file-history" / state["message_id"] / state["backup_file"]
-            if not backup_path.exists():
+            backup_file = state.get("backup_file")
+            if not backup_file:
                 continue
+
+            # file-history dirs are keyed by session_id, not message_id
+            backup_path = CLAUDE_DIR / "file-history" / session_id / backup_file
 
             try:
                 content = backup_path.read_text(encoding="utf-8")
                 start_line = find_string_line(content, old_string)
                 if start_line is not None:
                     block["startLine"] = start_line
-            except Exception:
+            except (FileNotFoundError, OSError):
                 pass
 
     return messages
 
 
-def reconstruct_conversation(messages: list[dict]) -> list[dict]:
+def reconstruct_conversation(messages: list[dict], session_id: str = "") -> list[dict]:
     """Reconstruct a conversation thread from raw JSONL messages.
 
     Groups user messages, assistant messages, and tool results together.
     Enriches Edit tool uses with line numbers from file history.
     """
     # First, enrich tool uses with line numbers
-    messages = enrich_tool_uses_with_line_numbers(messages)
+    messages = enrich_tool_uses_with_line_numbers(messages, session_id)
 
     uuid_map = {m.get("uuid"): m for m in messages if m.get("uuid")}
     conversation = []
@@ -222,11 +239,14 @@ def reconstruct_conversation(messages: list[dict]) -> list[dict]:
                 elif block_type == "thinking":
                     thinking_parts.append(block.get("thinking", ""))
                 elif block_type == "tool_use":
-                    tool_uses.append({
+                    tool_use = {
                         "id": block.get("id", ""),
                         "name": block.get("name", ""),
                         "input": block.get("input", {}),
-                    })
+                    }
+                    if "startLine" in block:
+                        tool_use["startLine"] = block["startLine"]
+                    tool_uses.append(tool_use)
 
             model = message_data.get("model", "")
             usage = message_data.get("usage", {})
@@ -581,7 +601,7 @@ def get_session_conversation(project_id: str, session_id: str):
         raise HTTPException(404, "Session not found")
 
     messages = read_jsonl(session_path)
-    conversation = reconstruct_conversation(messages)
+    conversation = reconstruct_conversation(messages, session_id)
 
     # Get subagent info
     subagents_dir = CLAUDE_DIR / "projects" / project_id / session_id / "subagents"
@@ -620,7 +640,7 @@ def get_subagent_conversation(project_id: str, session_id: str, agent_file: str)
         raise HTTPException(404, "Subagent not found")
 
     messages = read_jsonl(agent_path)
-    conversation = reconstruct_conversation(messages)
+    conversation = reconstruct_conversation(messages, session_id)
     return {
         "conversation": conversation,
         "total_raw_messages": len(messages),
