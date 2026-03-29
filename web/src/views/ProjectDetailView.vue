@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import HistorySearch from '../components/HistorySearch.vue'
 
 const props = defineProps({
   projectId: String
@@ -11,6 +12,7 @@ const router = useRouter()
 const project = ref(null)
 const sessions = ref([])
 const loading = ref(true)
+const searchActive = ref(false)
 
 onMounted(async () => {
   const res = await fetch(`/api/projects/${props.projectId}`)
@@ -42,6 +44,10 @@ function goBack() {
 function openSession(sessionId) {
   router.push(`/projects/${props.projectId}/sessions/${sessionId}`)
 }
+
+function onSearchActive(active) {
+  searchActive.value = active
+}
 </script>
 
 <template>
@@ -64,33 +70,47 @@ function openSession(sessionId) {
       <span class="text-xs text-[var(--text-secondary)]">{{ sessions.length }} sessions</span>
     </div>
 
-    <!-- Sessions List -->
+    <!-- Content area -->
     <div class="flex-1 overflow-auto">
-      <div v-if="loading" class="text-[var(--text-secondary)] text-center py-16">Loading...</div>
-
-      <div v-else-if="sessions.length === 0" class="text-[var(--text-secondary)] text-center py-16">
-        No sessions found
+      <!-- Search bar + results (always rendered, single instance) -->
+      <div class="p-6 max-w-5xl mx-auto">
+        <HistorySearch
+          :project-path="project?.path || ''"
+          :sync-url="false"
+          :show-project="false"
+          :initially-active="false"
+          @search-active="onSearchActive"
+        />
       </div>
 
-      <div v-else class="max-w-3xl mx-auto py-6 px-6 space-y-3">
-        <button
-          v-for="session in sessions"
-          :key="session.id"
-          @click="openSession(session.id)"
-          class="w-full text-left p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--bg-assistant)] transition-colors"
-        >
-          <div class="font-mono text-xs text-[var(--text-secondary)] mb-1">
-            {{ session.id.substring(0, 16) }}...
-          </div>
-          <div v-if="session.preview" class="text-sm text-[var(--text-primary)] truncate">
-            {{ session.preview }}
-          </div>
-          <div v-else class="text-sm text-[var(--text-secondary)] italic">No preview</div>
-          <div class="flex justify-between mt-2 text-xs text-[var(--text-secondary)]">
-            <span>{{ session.message_count }} messages</span>
-            <span>{{ formatTime(session.modified) }}</span>
-          </div>
-        </button>
+      <!-- Session list (shown when search is inactive) -->
+      <div v-if="!searchActive">
+        <div v-if="loading" class="text-[var(--text-secondary)] text-center py-16">Loading...</div>
+
+        <div v-else-if="sessions.length === 0" class="text-[var(--text-secondary)] text-center py-16">
+          No sessions found
+        </div>
+
+        <div v-else class="max-w-3xl mx-auto pb-6 px-6 space-y-3">
+          <button
+            v-for="session in sessions"
+            :key="session.id"
+            @click="openSession(session.id)"
+            class="w-full text-left p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--bg-assistant)] transition-colors"
+          >
+            <div class="font-mono text-xs text-[var(--text-secondary)] mb-1">
+              {{ session.id.substring(0, 16) }}...
+            </div>
+            <div v-if="session.preview" class="text-sm text-[var(--text-primary)] truncate">
+              {{ session.preview }}
+            </div>
+            <div v-else class="text-sm text-[var(--text-secondary)] italic">No preview</div>
+            <div class="flex justify-between mt-2 text-xs text-[var(--text-secondary)]">
+              <span>{{ session.message_count }} messages</span>
+              <span>{{ formatTime(session.modified) }}</span>
+            </div>
+          </button>
+        </div>
       </div>
     </div>
   </div>
