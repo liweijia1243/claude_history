@@ -7,7 +7,7 @@ import hljs from 'highlight.js'
 import ToolCallBlock from '../components/ToolCallBlock.vue'
 import ThinkingBlock from '../components/ThinkingBlock.vue'
 import CodeBlock from '../components/CodeBlock.vue'
-import { stripAnsi } from '../utils/ansiToHtml.js'
+import { stripAnsi, isTerminalOutput, processTerminalOutput } from '../utils/ansiToHtml.js'
 
 // Custom renderer for code blocks
 const renderer = new marked.Renderer()
@@ -66,7 +66,13 @@ function formatTime(ts) {
 
 function renderMarkdown(text) {
   if (!text) return ''
-  // Strip ANSI escape sequences before markdown parsing
+
+  // Check if this looks like terminal output with visual formatting
+  if (isTerminalOutput(text)) {
+    return processTerminalOutput(text)
+  }
+
+  // Normal markdown processing
   const cleanText = stripAnsi(text)
   return marked.parse(cleanText)
 }
@@ -393,5 +399,24 @@ function goBackToHistory() {
 
 .dark .prose :deep(code:not(pre code)) {
   color: #f0abfc;
+}
+
+/* Terminal output styling */
+:deep(.terminal-output) {
+  font-family: 'Fira Code', 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  background-color: #1a1a1a;
+  color: #d4d4d4;
+  padding: 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.dark :deep(.terminal-output) {
+  background-color: #0d0d0d;
 }
 </style>
