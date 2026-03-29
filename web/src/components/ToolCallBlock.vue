@@ -22,10 +22,10 @@ function toolResultFor(useId) {
   return props.toolResults?.find(r => r.tool_use_id === useId)
 }
 
-function resultPreview(result) {
+function resultPreview(result, maxLen = 800) {
   if (!result?.content) return ''
   const c = result.content
-  if (c.length > 800) return c.substring(0, 800) + '...'
+  if (c.length > maxLen) return c.substring(0, maxLen) + '...'
   return c
 }
 
@@ -167,7 +167,7 @@ function formatLabel(tool) {
             <!-- Read result - show as code block -->
             <CodeBlock
               v-else-if="tool.name === 'Read'"
-              :code="resultPreview(toolResultFor(tool.id))"
+              :code="resultPreview(toolResultFor(tool.id), 5000)"
               :language="tool.input?.file_path?.split('.').pop() || 'text'"
             />
             <!-- Regular result -->
