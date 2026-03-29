@@ -117,19 +117,34 @@ async function scrollToMessage() {
   if (!msgTimestamp) return
 
   await nextTick()
-  // Small delay to ensure DOM is fully rendered
   setTimeout(() => {
     const targetMs = Number(msgTimestamp)
-    // History timestamps are integer milliseconds; session message timestamps
-    // are ISO 8601 strings. They differ by a few ms, so use fuzzy matching
-    // (within 1 second tolerance).
     const messages = document.querySelectorAll('[data-msg-timestamp]')
+
+    // First pass: try exact timestamp match (within 1 second)
     for (const el of messages) {
       const raw = el.dataset.msgTimestamp
       const elMs = new Date(raw).getTime()
       if (Math.abs(elMs - targetMs) < 1000) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
+      }
+    }
+
+    // Second pass: for local commands like /context, the output is embedded
+    // in a subsequent user message. Try to find a message with terminal output
+    // (contains Context Usage or similar patterns) within 5 minutes
+    const fiveMinutes = 5 * 60 * 1000
+    for (const el of messages) {
+      const raw = el.dataset.msgTimestamp
+      const elMs = new Date(raw).getTime()
+      if (elMs > targetMs && elMs - targetMs < fiveMinutes) {
+        // Check if this message contains terminal output (from /context, etc.)
+        if (el.innerHTML.includes('Context Usage') ||
+            el.querySelector('.terminal-output')) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          return
+        }
       }
     }
   }, 100)
