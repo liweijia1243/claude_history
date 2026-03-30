@@ -28,6 +28,24 @@ claude_history
 
 启动后会自动在浏览器中打开 `http://localhost:8787`。
 
+### 命令行参数
+
+```
+claude_history [选项]
+
+选项:
+  --port <端口>  指定服务端口 (默认: 8787)
+  --shared       允许局域网内其他设备访问 (默认仅本机可访问)
+  --help, -h     显示帮助信息
+
+示例:
+  claude_history                # 本机 8787 端口启动
+  claude_history --port 9000    # 指定端口启动
+  claude_history --shared       # 允许局域网访问
+```
+
+> **安全提示：** 默认仅绑定本机 127.0.0.1，会话历史仅本机可访问。使用 `--shared` 会绑定 0.0.0.0，局域网内所有设备均可访问。
+
 ## 从源码运行
 
 **依赖：** Python 3.8+, Node.js 18+
@@ -54,10 +72,11 @@ cd web && npm install && cd ..
 
 ```bash
 cd web && npm run build && cd ..
-python server.py
+python server.py              # 仅本机访问
+python server.py --shared     # 允许局域网访问
+python server.py --port 9000  # 指定端口
+python server.py --no-open    # 不自动打开浏览器
 ```
-
-访问 http://localhost:8787 即可。
 
 ## 架构
 
