@@ -29,7 +29,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # 启动后端（前台阻塞）
-"$SERVER" --port "$PORT" &
+"$SERVER" --port "$PORT" --no-open &
 SERVER_PID=$!
 
 # 等待端口就绪
