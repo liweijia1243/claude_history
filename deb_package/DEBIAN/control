@@ -1,0 +1,10 @@
+Package: claude-history
+Version: 0.0.3
+Architecture: amd64
+Maintainer: liweijia1243 <liweijia1243@users.noreply.github.com>
+Depends: libgtk-3-0, libnotify4, libnss3, libxss1, xdg-utils
+Section: web
+Priority: optional
+Description: Claude Code conversation history viewer
+ A web-based viewer for Claude Code conversation history,
+ projects, plans and command history.

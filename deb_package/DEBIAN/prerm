@@ -1,0 +1,3 @@
+#!/bin/bash
+# 停止可能正在运行的实例
+pkill -f "/opt/claude-history/claude-history-server" 2>/dev/null || true
