@@ -1,0 +1,49 @@
+#!/bin/bash
+# Claude History Viewer 启动脚本
+
+SERVER="/opt/claude-history/claude-history-server"
+PORT=8787
+
+# 检查二进制是否存在
+if [ ! -f "$SERVER" ]; then
+    echo "错误: 未找到 $SERVER" >&2
+    echo "请重新安装 claude-history" >&2
+    exit 1
+fi
+
+# 检查端口是否被占用
+if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
+    echo "错误: 端口 $PORT 已被占用" >&2
+    echo "请先关闭占用该端口的程序，或使用 --port 指定其他端口" >&2
+    exit 1
+fi
+
+# 清理函数
+cleanup() {
+    echo ""
+    echo "正在停止 Claude History Viewer..."
+    kill "$SERVER_PID" 2>/dev/null
+    wait "$SERVER_PID" 2>/dev/null
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# 启动后端（前台阻塞）
+"$SERVER" --port "$PORT" &
+SERVER_PID=$!
+
+# 等待端口就绪
+echo "正在启动 Claude History Viewer..."
+for i in $(seq 1 30); do
+    if curl -s -o /dev/null "http://localhost:${PORT}/api/stats" 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+# 打开浏览器
+echo "正在打开浏览器: http://localhost:${PORT}"
+xdg-open "http://localhost:${PORT}" 2>/dev/null &
+
+echo "Claude History Viewer 运行中，按 Ctrl+C 停止"
+wait "$SERVER_PID"
