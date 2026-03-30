@@ -41,6 +41,20 @@ const fromProject = computed(() => route.query.source === 'project')
 const totalRaw = ref(0)
 const showThinking = ref(false)
 const showTools = ref(false)
+const showAgents = ref(false)
+
+const agentToolNames = new Set(['Agent', 'TaskOutput'])
+
+function getAgentTools(toolUses) {
+  return toolUses?.filter(t => agentToolNames.has(t.name)) || []
+}
+
+function getNonAgentTools(toolUses) {
+  return toolUses?.filter(t => !agentToolNames.has(t.name)) || []
+}
+
+const subagentShowTools = ref(true)
+
 const selectedSubagent = ref(null)
 const subagentConversation = ref([])
 
@@ -202,6 +216,10 @@ function goBackToProject() {
         <input type="checkbox" v-model="showTools" class="rounded border-[var(--border-color)] accent-emerald-500" />
         Show Tools
       </label>
+      <label class="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+        <input type="checkbox" v-model="showAgents" class="rounded border-[var(--border-color)] accent-orange-500" />
+        Show Agents
+      </label>
     </div>
 
     <!-- Subagent Panel (overlay) -->
@@ -217,9 +235,15 @@ function goBackToProject() {
               <span class="text-sm font-semibold text-[var(--text-primary)]">Subagent: {{ selectedSubagent.type }}</span>
               <span class="text-xs text-[var(--text-secondary)] ml-2 font-mono">{{ selectedSubagent.filename }}</span>
             </div>
-            <button @click="closeSubagent" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
+            <div class="flex items-center gap-4">
+              <label class="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+                <input type="checkbox" v-model="subagentShowTools" class="rounded border-[var(--border-color)] accent-emerald-500" />
+                Show Tools
+              </label>
+              <button @click="closeSubagent" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
           </div>
           <div class="p-6 space-y-4">
             <div
@@ -230,7 +254,7 @@ function goBackToProject() {
                 msg.role === 'user' ? 'bg-[var(--bg-card)] ml-8' : 'bg-[var(--bg-assistant)] mr-8'
               ]"
             >
-              <div v-if="msg.role === 'user' || msg.content || (showThinking && msg.thinking) || (showTools && msg.tool_uses?.length)" class="text-xs text-[var(--text-secondary)] mb-2 font-semibold uppercase tracking-wide">
+              <div v-if="msg.role === 'user' || msg.content || (showThinking && msg.thinking) || (subagentShowTools && msg.tool_uses?.length)" class="text-xs text-[var(--text-secondary)] mb-2 font-semibold uppercase tracking-wide">
                 {{ msg.role === 'user' ? 'User' : 'Assistant' }}
               </div>
               <div
@@ -239,7 +263,7 @@ function goBackToProject() {
                 v-html="renderMarkdown(msg.content)"
               ></div>
               <ThinkingBlock v-if="showThinking && msg.thinking" :thinking="msg.thinking" />
-              <ToolCallBlock v-if="showTools && msg.tool_uses?.length" :tool-uses="msg.tool_uses" :tool-results="msg.tool_results" />
+              <ToolCallBlock v-if="subagentShowTools && msg.tool_uses?.length" :tool-uses="msg.tool_uses" :tool-results="msg.tool_results" />
             </div>
           </div>
         </div>
@@ -269,7 +293,7 @@ function goBackToProject() {
           <!-- Assistant Message -->
           <div v-else class="w-full">
             <!-- Model header -->
-            <div v-if="msg.model && (msg.content || (showThinking && msg.thinking) || (showTools && msg.tool_uses?.length))" class="flex items-center gap-2 mb-3">
+            <div v-if="msg.model && (msg.content || (showThinking && msg.thinking) || (showTools && getNonAgentTools(msg.tool_uses).length) || (showAgents && getAgentTools(msg.tool_uses).length))" class="flex items-center gap-2 mb-3">
               <span class="text-sm">{{ getModelIcon(msg.model) }}</span>
               <span class="text-sm font-medium text-[var(--text-primary)]">{{ getModelShort(msg.model) }}</span>
               <span v-if="msg.usage" class="text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] px-2 py-0.5 rounded-full">
@@ -290,10 +314,17 @@ function goBackToProject() {
               v-html="renderMarkdown(msg.content)"
             ></div>
 
-            <!-- Tool Uses -->
+            <!-- Non-Agent Tool Uses -->
             <ToolCallBlock
-              v-if="showTools && msg.tool_uses?.length"
-              :tool-uses="msg.tool_uses"
+              v-if="showTools && getNonAgentTools(msg.tool_uses).length"
+              :tool-uses="getNonAgentTools(msg.tool_uses)"
+              :tool-results="msg.tool_results"
+            />
+
+            <!-- Agent Tool Uses -->
+            <ToolCallBlock
+              v-if="showAgents && getAgentTools(msg.tool_uses).length"
+              :tool-uses="getAgentTools(msg.tool_uses)"
               :tool-results="msg.tool_results"
             />
           </div>
