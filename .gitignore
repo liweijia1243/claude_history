@@ -7,3 +7,8 @@ web/.vite/
 *.egg-info/
 .env
 .DS_Store
+
+# PyInstaller
+dist/
+build/
+*.spec
