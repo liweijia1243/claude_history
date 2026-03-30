@@ -11,7 +11,7 @@ echo ""
 
 # Start backend in background
 echo "Starting backend on http://localhost:8787"
-python server.py &
+python server.py --no-open &
 BACKEND_PID=$!
 
 # Start frontend dev server
