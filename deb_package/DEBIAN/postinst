@@ -1,0 +1,4 @@
+#!/bin/bash
+# 设置可执行权限
+chmod +x /opt/claude-history/claude-history-server
+chmod +x /usr/bin/claude_history
