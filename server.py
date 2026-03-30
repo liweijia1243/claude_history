@@ -694,7 +694,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Claude History Viewer")
     parser.add_argument("--port", type=int, default=8787, help="服务端口 (默认: 8787)")
     parser.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
+    parser.add_argument("--shared", action="store_true", help="允许局域网访问 (默认仅本机访问)")
     args = parser.parse_args()
+
+    host = "0.0.0.0" if args.shared else "127.0.0.1"
 
     if not args.no_open:
         def open_browser():
@@ -704,4 +707,4 @@ if __name__ == "__main__":
         threading.Thread(target=open_browser, daemon=True).start()
 
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=args.port)
+    uvicorn.run(app, host=host, port=args.port)
