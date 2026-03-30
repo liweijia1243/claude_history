@@ -19,7 +19,8 @@ renderer.code = function({ text, lang }) {
   return `<div class="code-block-wrapper"><div class="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-[#404040]"><span class="text-xs font-medium text-[#a0a0a0] uppercase tracking-wide">${language || 'code'}</span></div><pre class="!m-0 !rounded-b-xl !border-t-0"><code class="language-${language}">${highlighted}</code></pre></div>`
 }
 renderer.codespan = function({ text }) {
-  return `<code class="inline-code">${text}</code>`
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return `<code class="inline-code">${escaped}</code>`
 }
 
 marked.setOptions({
