@@ -3,6 +3,35 @@
 
 SERVER="/opt/claude-history/claude-history-server"
 PORT=8787
+SHARED=false
+
+# 解析参数
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --shared)
+            SHARED=true
+            shift
+            ;;
+        --help|-h)
+            echo "Claude History Viewer - Claude Code 会话记录可视化查看器"
+            echo ""
+            echo "用法: claude_history [选项]"
+            echo ""
+            echo "选项:"
+            echo "  --shared    允许局域网内其他设备访问 (默认仅本机可访问)"
+            echo "  --help, -h  显示此帮助信息"
+            echo ""
+            echo "启动后自动在浏览器中打开 http://localhost:8787"
+            echo "按 Ctrl+C 停止服务"
+            exit 0
+            ;;
+        *)
+            echo "未知选项: $1" >&2
+            echo "使用 --help 查看帮助" >&2
+            exit 1
+            ;;
+    esac
+done
 
 # 检查二进制是否存在
 if [ ! -f "$SERVER" ]; then
@@ -14,7 +43,7 @@ fi
 # 检查端口是否被占用
 if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
     echo "错误: 端口 $PORT 已被占用" >&2
-    echo "请先关闭占用该端口的程序，或使用 --port 指定其他端口" >&2
+    echo "请先关闭占用该端口的程序" >&2
     exit 1
 fi
 
@@ -28,8 +57,14 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-# 启动后端（前台阻塞）
-"$SERVER" --port "$PORT" --no-open &
+# 启动后端
+if [ "$SHARED" = true ]; then
+    "$SERVER" --port "$PORT" --no-open --shared &
+    ACCESS="http://$(hostname -I 2>/dev/null | awk '{print $1}'):${PORT} 或 http://localhost:${PORT}"
+else
+    "$SERVER" --port "$PORT" --no-open &
+    ACCESS="http://localhost:${PORT}"
+fi
 SERVER_PID=$!
 
 # 等待端口就绪
@@ -42,8 +77,9 @@ for i in $(seq 1 30); do
 done
 
 # 打开浏览器
-echo "正在打开浏览器: http://localhost:${PORT}"
+echo "正在打开浏览器: $ACCESS"
 xdg-open "http://localhost:${PORT}" 2>/dev/null &
 
-echo "Claude History Viewer 运行中，按 Ctrl+C 停止"
+echo "Claude History Viewer 运行中: $ACCESS"
+echo "按 Ctrl+C 停止"
 wait "$SERVER_PID"
