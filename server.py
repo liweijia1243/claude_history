@@ -5,6 +5,7 @@ import glob
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+import sys
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,14 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 CLAUDE_DIR = Path(os.path.expanduser("~/.claude"))
+
+
+def get_base_path():
+    """获取资源文件基础路径，兼容 PyInstaller 和普通运行"""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
+
 
 app = FastAPI(title="Claude History Viewer")
 
@@ -665,7 +674,7 @@ def get_subagent_conversation(project_id: str, session_id: str, agent_file: str)
 
 # In development, Vite serves the frontend on port 5173
 # In production, serve the built files
-dist_dir = Path(__file__).parent / "web" / "dist"
+dist_dir = get_base_path() / "web" / "dist"
 if dist_dir.exists():
     app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="assets")
 
@@ -678,6 +687,21 @@ if dist_dir.exists():
 
 
 if __name__ == "__main__":
-    import uvicorn
+    import argparse
+    import webbrowser
+    import threading
 
-    uvicorn.run(app, host="0.0.0.0", port=8787)
+    parser = argparse.ArgumentParser(description="Claude History Viewer")
+    parser.add_argument("--port", type=int, default=8787, help="服务端口 (默认: 8787)")
+    parser.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
+    args = parser.parse_args()
+
+    if not args.no_open:
+        def open_browser():
+            import time
+            time.sleep(1.5)
+            webbrowser.open(f"http://localhost:{args.port}")
+        threading.Thread(target=open_browser, daemon=True).start()
+
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
