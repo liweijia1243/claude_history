@@ -12,3 +12,4 @@ web/.vite/
 dist/
 build/
 *.spec
+*.deb
