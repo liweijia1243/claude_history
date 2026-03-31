@@ -8,11 +8,11 @@
 
 读取本机 `~/.claude/` 下的数据，通过美观的 Web 界面展示对话历史、实施计划、项目会话等内容。
 
-[![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
+[![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
 **Languages**: [中文](README.md) | [English](README.en.md)
 
-[下载安装](#安装) · [从源码运行](#从源码运行) · [功能预览](#功能预览) · [报告问题](https://github.com/liweijia1243/claude_history/issues)
+[下载安装](https://github.com/liweijia1243/claude_history/releases) · [从源码运行](#从源码运行) · [功能预览](#功能预览) · [报告问题](https://github.com/liweijia1243/claude_history/issues)
 
 </div>
 
@@ -69,7 +69,7 @@
 
 ## 安装（Ubuntu 20.04+）
 
-从 [GitHub Releases](https://github.com/liweijia1243/claude_history/releases) 下载最新的 `.deb` 文件：
+从 [GitHub Releases](https://github.com/liweijia1243/claude_history/releases/latest) 下载最新的 `.deb` 文件：
 
 ```bash
 # 安装

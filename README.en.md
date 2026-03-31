@@ -8,11 +8,11 @@
 
 Reads data from the local `~/.claude/` directory and presents conversation history, implementation plans, and project sessions through a beautiful web interface.
 
-[![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
+[![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
 **Languages**: [中文](README.md) | [English](README.en.md)
 
-[Download](#installation-ubuntu-2004) · [Build from Source](#build-from-source) · [Features](#features) · [Report Bug](https://github.com/liweijia1243/claude_history/issues)
+[Download](https://github.com/liweijia1243/claude_history/releases) · [Build from Source](#build-from-source) · [Features](#features) · [Report Bug](https://github.com/liweijia1243/claude_history/issues)
 
 </div>
 
@@ -69,7 +69,7 @@ Reads data from the local `~/.claude/` directory and presents conversation histo
 
 ## Installation (Ubuntu 20.04+)
 
-Download the latest `.deb` file from [GitHub Releases](https://github.com/liweijia1243/claude_history/releases):
+Download the latest `.deb` file from [GitHub Releases](https://github.com/liweijia1243/claude_history/releases/latest):
 
 ```bash
 # Install
