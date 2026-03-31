@@ -288,7 +288,7 @@ function goBackToProject() {
     <div class="flex-1 overflow-auto">
       <div v-if="loading" class="text-[var(--text-secondary)] text-center py-16">Loading conversation...</div>
 
-      <div v-else class="max-w-3xl mx-auto py-8 space-y-6 px-6">
+      <div v-else class="max-w-4xl mx-auto py-8 space-y-6 px-6">
         <div
           v-for="(msg, i) in conversation"
           :key="i"
@@ -296,7 +296,7 @@ function goBackToProject() {
         >
           <!-- User Message -->
           <div v-if="msg.role === 'user'" class="flex justify-end" :data-msg-timestamp="msg.timestamp">
-            <div class="user-bubble rounded-2xl rounded-br-sm px-5 py-3 max-w-[75%]">
+            <div class="user-bubble rounded-2xl rounded-br-sm px-5 py-3 max-w-[85%]">
               <div
                 class="prose prose-sm max-w-none prose-p:m-0"
                 v-html="renderMarkdown(msg.content)"
@@ -385,6 +385,7 @@ function goBackToProject() {
   background-color: #eff6ff;
   border: 1px solid #bfdbfe;
   color: #1e40af;
+  overflow: hidden;
 }
 
 .dark .user-bubble {
@@ -397,6 +398,13 @@ function goBackToProject() {
   --tw-prose-body: #1e40af;
   --tw-prose-headings: #1e40af;
   --tw-prose-links: #1d4ed8;
+  overflow-wrap: break-word;
+}
+
+.user-bubble pre {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .dark .user-bubble .prose {
