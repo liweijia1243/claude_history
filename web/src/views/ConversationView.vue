@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import 'highlight.js/styles/github-dark.css'
@@ -40,9 +40,13 @@ const loading = ref(true)
 const fromHistory = computed(() => route.query.source === 'history')
 const fromProject = computed(() => route.query.source === 'project')
 const totalRaw = ref(0)
-const showThinking = ref(false)
-const showTools = ref(false)
-const showAgents = ref(false)
+const showThinking = ref(localStorage.getItem('conv_showThinking') === 'true')
+const showTools = ref(localStorage.getItem('conv_showTools') === 'true')
+const showAgents = ref(localStorage.getItem('conv_showAgents') === 'true')
+
+watch(showThinking, v => localStorage.setItem('conv_showThinking', v))
+watch(showTools, v => localStorage.setItem('conv_showTools', v))
+watch(showAgents, v => localStorage.setItem('conv_showAgents', v))
 
 const agentToolNames = new Set(['Agent', 'TaskOutput'])
 
@@ -54,7 +58,9 @@ function getNonAgentTools(toolUses) {
   return toolUses?.filter(t => !agentToolNames.has(t.name)) || []
 }
 
-const subagentShowTools = ref(true)
+const subagentShowTools = ref(localStorage.getItem('conv_subagentShowTools') !== 'false')
+
+watch(subagentShowTools, v => localStorage.setItem('conv_subagentShowTools', v))
 
 const selectedSubagent = ref(null)
 const subagentConversation = ref([])
