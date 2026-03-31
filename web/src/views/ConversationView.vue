@@ -125,6 +125,19 @@ function closeSubagent() {
   subagentConversation.value = []
 }
 
+function handleAgentClick(tool) {
+  const input = tool.input || {}
+  const subagentType = input.subagent_type || 'general-purpose'
+  const agent = subagents.value.find(
+    s => s.type === subagentType && s.description === input.description
+  )
+  if (agent) {
+    openSubagent(agent)
+    return true
+  }
+  return false
+}
+
 function goBack() {
   router.push(`/projects/${props.projectId}`)
 }
@@ -327,6 +340,7 @@ function goBackToProject() {
               v-if="showAgents && getAgentTools(msg.tool_uses).length"
               :tool-uses="getAgentTools(msg.tool_uses)"
               :tool-results="msg.tool_results"
+              :open-subagent-handler="handleAgentClick"
             />
           </div>
         </div>
