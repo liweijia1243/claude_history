@@ -185,8 +185,8 @@ web/               # Vue 3 + Tailwind CSS 前端
 推送版本 tag 触发 GitHub Actions 自动构建发布：
 
 ```bash
-git tag v0.0.5
-git push origin v0.0.5
+git tag v0.0.4
+git push origin v0.0.4
 ```
 
 ---

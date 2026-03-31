@@ -185,8 +185,8 @@ web/               # Vue 3 + Tailwind CSS frontend
 Push a version tag to trigger GitHub Actions automatic build and release:
 
 ```bash
-git tag v0.0.5
-git push origin v0.0.5
+git tag v0.0.4
+git push origin v0.0.4
 ```
 
 ---
