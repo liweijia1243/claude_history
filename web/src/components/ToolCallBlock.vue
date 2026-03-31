@@ -6,6 +6,7 @@ import DiffBlock from './DiffBlock.vue'
 const props = defineProps({
   toolUses: Array,
   toolResults: Array,
+  openSubagentHandler: Function, // (tool) => boolean, returns true if handled
 })
 
 const expanded = ref({})
@@ -16,6 +17,13 @@ function toggle(idx) {
 
 function isExpanded(idx) {
   return expanded.value[idx] || false
+}
+
+function onToolClick(tool, i) {
+  if (tool.name === 'Agent' && props.openSubagentHandler) {
+    if (props.openSubagentHandler(tool)) return
+  }
+  toggle(i)
 }
 
 function toolResultFor(useId) {
@@ -101,11 +109,27 @@ function formatLabel(tool) {
     <div v-for="(tool, i) in toolUses" :key="tool.id || i">
       <!-- Collapsed header -->
       <button
-        @click="toggle(i)"
+        @click="onToolClick(tool, i)"
         :class="getToolConfig(tool.name).color"
         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-sm font-mono transition-all hover:opacity-80"
       >
         <svg
+          v-if="tool.name === 'Agent'"
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="flex-shrink-0 opacity-60"
+        >
+          <path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        </svg>
+        <svg
+          v-else
           :class="[isExpanded(i) ? 'rotate-90' : '']"
           xmlns="http://www.w3.org/2000/svg"
           width="12"
@@ -162,7 +186,7 @@ function formatLabel(tool) {
             <!-- Bash result with terminal style -->
             <div v-if="tool.name === 'Bash'" class="terminal-output">
               <div class="text-xs text-emerald-400/60 mb-1">$ {{ tool.input?.command }}</div>
-              <pre class="whitespace-pre-wrap break-words max-h-80 overflow-auto">{{ resultPreview(toolResultFor(tool.id)) }}</pre>
+              <pre class="whitespace-pre-wrap break-words max-h-80 overflow-auto">{{ resultPreview(toolResultFor(tool.id), 5000) }}</pre>
             </div>
             <!-- Read result - show as code block -->
             <CodeBlock

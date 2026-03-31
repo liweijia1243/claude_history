@@ -641,6 +641,7 @@ def get_session_conversation(project_id: str, session_id: str):
             subagents.append({
                 "filename": f.name,
                 "type": meta.get("agentType", "Unknown"),
+                "description": meta.get("description", ""),
                 "size": f.stat().st_size,
             })
 
