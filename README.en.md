@@ -92,13 +92,27 @@ claude_history [options]
 Options:
   --port <port>   Specify server port (default: 8787)
   --shared        Allow access from other devices on the LAN (default: localhost only)
+  --update        Check and install the latest version
+  --version, -v   Show version information
   --help, -h      Show help message
 
 Examples:
   claude_history                # Start on localhost:8787
   claude_history --port 9000    # Start on a custom port
   claude_history --shared       # Allow LAN access
+  claude_history --update       # Update to the latest version
+  claude_history --version      # Show current version
 ```
+
+### Auto-Update
+
+On startup, the app automatically checks for new versions. If an update is available:
+
+```
+  New version v0.0.8 available. Run claude_history --update to update.
+```
+
+Run `claude_history --update` to automatically download and install the latest version.
 
 > **Security Note:** By default, the server binds to `127.0.0.1` only — session history is accessible from the local machine only. Using `--shared` binds to `0.0.0.0`, making it accessible to all devices on the local network.
 

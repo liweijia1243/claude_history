@@ -92,13 +92,27 @@ claude_history [选项]
 选项:
   --port <端口>  指定服务端口 (默认: 8787)
   --shared       允许局域网内其他设备访问 (默认仅本机)
+  --update       检查并安装最新版本
+  --version, -v  显示版本信息
   --help, -h     显示帮助信息
 
 示例:
   claude_history                # 本机 8787 端口启动
   claude_history --port 9000    # 指定端口启动
   claude_history --shared       # 允许局域网访问
+  claude_history --update       # 更新到最新版本
+  claude_history --version      # 查看当前版本
 ```
+
+### 自动更新
+
+启动时会自动检测是否有新版本，如有则会提示：
+
+```
+  有新版本 v0.0.8 可用，运行 claude_history --update 进行更新
+```
+
+运行 `claude_history --update` 即可自动下载并安装最新版本。
 
 > **安全提示：** 默认仅绑定 `127.0.0.1`，会话历史仅本机可访问。使用 `--shared` 会绑定 `0.0.0.0`，局域网内所有设备均可访问。
 
