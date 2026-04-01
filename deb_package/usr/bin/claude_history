@@ -2,8 +2,18 @@
 # Claude History Viewer 启动脚本
 
 SERVER="/opt/claude-history/claude-history-server"
+UPDATER="/opt/claude-history/updater"
 PORT=8787
 SHARED=false
+
+# --update 单独处理（需要 sudo）
+if [ "$1" = "--update" ]; then
+    if [ ! -f "$UPDATER" ]; then
+        echo "错误: 未找到更新器 $UPDATER" >&2
+        exit 1
+    fi
+    exec sudo "$UPDATER" --update
+fi
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -28,12 +38,14 @@ while [[ $# -gt 0 ]]; do
             echo "选项:"
             echo "  --port <端口>  指定服务端口 (默认: 8787)"
             echo "  --shared       允许局域网内其他设备访问 (默认仅本机可访问)"
+            echo "  --update       检查并安装最新版本"
             echo "  --help, -h     显示此帮助信息"
             echo ""
             echo "示例:"
             echo "  claude_history              # 本机 8787 端口启动"
-            echo "  claude_history --port 9000   # 指定端口启动"
-            echo "  claude_history --shared      # 允许局域网访问"
+            echo "  claude_history --port 9000  # 指定端口启动"
+            echo "  claude_history --shared     # 允许局域网访问"
+            echo "  claude_history --update     # 更新到最新版本"
             echo ""
             echo "启动后自动在浏览器中打开，按 Ctrl+C 停止服务"
             exit 0
@@ -51,6 +63,18 @@ if [ ! -f "$SERVER" ]; then
     echo "错误: 未找到 $SERVER" >&2
     echo "请重新安装 claude-history" >&2
     exit 1
+fi
+
+# 后台静默检测更新（不等待，不阻塞）
+if [ -f "$UPDATER" ]; then
+    ("$UPDATER" --check 2>/dev/null | while read -r line; do
+        if [[ "$line" == UPDATE_AVAILABLE:* ]]; then
+            new_ver="${line#UPDATE_AVAILABLE:}"
+            echo ""
+            echo "  有新版本 $new_ver 可用，运行 claude_history --update 进行更新"
+            echo ""
+        fi
+    done) &
 fi
 
 # 检查端口是否被占用
