@@ -139,17 +139,16 @@ def cmd_update():
         print("请重新运行 claude_history 启动新版本")
         sys.exit(0)
 
-    except requests.exceptions.RequestException as e:
-        print(f"网络错误: {e}", file=sys.stderr)
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        print(f"网络错误: {e}", file=sys.stderr)
-        sys.exit(1)
     except KeyError as e:
         print(f"解析错误: 缺少字段 {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"更新失败: {e}", file=sys.stderr)
+        # 统一处理网络错误和其他异常
+        error_name = type(e).__name__
+        if "RequestException" in error_name or "URLError" in error_name or "HTTPError" in error_name:
+            print(f"网络错误: {e}", file=sys.stderr)
+        else:
+            print(f"更新失败: {e}", file=sys.stderr)
         sys.exit(1)
 
 
