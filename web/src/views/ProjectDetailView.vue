@@ -99,7 +99,7 @@ function onSearchActive(active) {
             class="w-full text-left p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--bg-assistant)] transition-colors"
           >
             <div class="font-mono text-xs text-[var(--text-secondary)] mb-1">
-              {{ session.id.substring(0, 16) }}...
+              {{ session.id }}
             </div>
             <div v-if="session.preview" class="text-sm text-[var(--text-primary)] truncate">
               {{ session.preview }}

@@ -225,7 +225,7 @@ function goBackToProject() {
         Project
       </button>
       <div class="flex-1 min-w-0">
-        <span class="text-sm text-[var(--text-secondary)] font-mono">{{ sessionId?.substring(0, 16) }}...</span>
+        <span class="text-sm text-[var(--text-secondary)] font-mono">{{ sessionId }}</span>
         <span class="text-xs text-[var(--text-secondary)] opacity-50 ml-3">{{ totalRaw }} raw messages</span>
       </div>
       <label class="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">

@@ -253,7 +253,7 @@ watch(page, fetchHistory)
                   <span class="font-medium">Time:</span> {{ formatFullTime(item.timestamp) }}
                 </div>
                 <div class="text-xs text-[var(--text-secondary)]">
-                  <span class="font-medium">Session:</span> {{ item.sessionId?.substring(0, 16) }}...
+                  <span class="font-medium">Session:</span> {{ item.sessionId }}
                 </div>
               </div>
             </div>
