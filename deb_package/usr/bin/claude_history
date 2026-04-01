@@ -6,6 +6,8 @@ UPDATER="/opt/claude-history/updater"
 PORT=8787
 SHARED=false
 
+VERSION_FILE="/opt/claude-history/VERSION"
+
 # --update 单独处理（需要 sudo）
 if [ "$1" = "--update" ]; then
     if [ ! -f "$UPDATER" ]; then
@@ -13,6 +15,17 @@ if [ "$1" = "--update" ]; then
         exit 1
     fi
     exec sudo "$UPDATER" --update
+fi
+
+# --version 单独处理
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    if [ -f "$VERSION_FILE" ]; then
+        VERSION=$(cat "$VERSION_FILE")
+        echo "Claude History Viewer v$VERSION"
+    else
+        echo "Claude History Viewer (版本未知)"
+    fi
+    exit 0
 fi
 
 # 解析参数
@@ -39,6 +52,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --port <端口>  指定服务端口 (默认: 8787)"
             echo "  --shared       允许局域网内其他设备访问 (默认仅本机可访问)"
             echo "  --update       检查并安装最新版本"
+            echo "  --version, -v  显示版本信息"
             echo "  --help, -h     显示此帮助信息"
             echo ""
             echo "示例:"
