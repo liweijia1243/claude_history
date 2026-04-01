@@ -39,6 +39,13 @@ mkdir -p "$BUILD_DIR/usr/share/doc/claude-history"
 # 复制二进制
 cp dist/claude-history-server "$BUILD_DIR/opt/claude-history/"
 
+# 复制更新器
+cp updater "$BUILD_DIR/opt/claude-history/"
+chmod +x "$BUILD_DIR/opt/claude-history/updater"
+
+# 生成版本文件
+echo "$VERSION" > "$BUILD_DIR/opt/claude-history/VERSION"
+
 # 复制文档
 cp LICENSE "$BUILD_DIR/usr/share/doc/claude-history/"
 if [ -f README.md ]; then
