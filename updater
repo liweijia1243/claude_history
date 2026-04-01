@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Claude History Viewer 自动更新器"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+
+# 尽量使用 requests，如果不可用则使用 urllib
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    import urllib.error
+    import json
+    HAS_REQUESTS = False
+
+try:
+    from packaging.version import parse as parse_version
+except ImportError:
+    # 简单版本比较回退
+    def parse_version(v):
+        return tuple(int(x) for x in v.split('.'))
+
+GITHUB_REPO = "liweijia1243/claude_history"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+INSTALL_DIR = "/opt/claude-history"
+VERSION_FILE = f"{INSTALL_DIR}/VERSION"
+
+
+def get_current_version():
+    """获取当前安装版本"""
+    try:
+        with open(VERSION_FILE, 'r') as f:
+            return f.read().strip()
+    except (FileNotFoundError, IOError):
+        return "0.0.0"
+
+
+def get_latest_release():
+    """获取 GitHub 最新 release 信息"""
+    if HAS_REQUESTS:
+        response = requests.get(GITHUB_API_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    else:
+        req = urllib.request.Request(GITHUB_API_URL, headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "claude-history-updater"
+        })
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+
+    version = data["tag_name"].lstrip("v")
+
+    # 查找 .deb 文件
+    deb_url = None
+    for asset in data.get("assets", []):
+        if asset["name"].endswith(".deb") and "amd64" in asset["name"]:
+            deb_url = asset["browser_download_url"]
+            break
+
+    return version, deb_url
+
+
+def download_file(url, dest):
+    """下载文件到指定路径"""
+    if HAS_REQUESTS:
+        response = requests.get(url, timeout=60, stream=True)
+        response.raise_for_status()
+        with open(dest, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+    else:
+        urllib.request.urlretrieve(url, dest)
+
+
+def cmd_check():
+    """静默检测是否有新版本"""
+    try:
+        current = get_current_version()
+        latest, _ = get_latest_release()
+
+        if parse_version(latest) > parse_version(current):
+            print(f"UPDATE_AVAILABLE:v{latest}")
+    except Exception:
+        # 静默失败，不输出任何内容
+        pass
+
+
+def cmd_update():
+    """执行更新"""
+    try:
+        current = get_current_version()
+        print(f"当前版本: {current}")
+        print("正在检查更新...")
+
+        latest, deb_url = get_latest_release()
+
+        if parse_version(latest) <= parse_version(current):
+            print(f"已是最新版本: {current}")
+            sys.exit(0)
+
+        print(f"发现新版本: {latest}")
+
+        if not deb_url:
+            print("错误: 未找到 .deb 安装包", file=sys.stderr)
+            sys.exit(1)
+
+        # 下载
+        print(f"正在下载: {deb_url}")
+        with tempfile.NamedTemporaryFile(suffix=".deb", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        download_file(deb_url, tmp_path)
+        print(f"下载完成: {tmp_path}")
+
+        # 安装
+        print("正在安装...")
+        result = subprocess.run(
+            ["dpkg", "-i", tmp_path],
+            capture_output=True,
+            text=True
+        )
+
+        # 清理临时文件
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+        if result.returncode != 0:
+            print(f"安装失败: {result.stderr}", file=sys.stderr)
+            sys.exit(1)
+
+        print("")
+        print("更新成功!")
+        print("请重新运行 claude_history 启动新版本")
+        sys.exit(0)
+
+    except requests.exceptions.RequestException as e:
+        print(f"网络错误: {e}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"网络错误: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyError as e:
+        print(f"解析错误: 缺少字段 {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"更新失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Claude History 更新器")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--check", action="store_true", help="静默检测是否有新版本")
+    group.add_argument("--update", action="store_true", help="执行更新")
+
+    args = parser.parse_args()
+
+    if args.check:
+        cmd_check()
+    elif args.update:
+        cmd_update()
+
+
+if __name__ == "__main__":
+    main()
