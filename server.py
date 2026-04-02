@@ -6,6 +6,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 import sys
+import time as _time
+from collections import defaultdict
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -306,6 +308,24 @@ def build_session_project_map():
     return mapping
 
 
+# ── Dashboard Stats Cache ────────────────────────────────────────────────────
+
+_dashboard_cache: dict = {}  # key: range_str, value: {"data": ..., "ts": float}
+_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_cached_dashboard_stats(range_str: str):
+    """Return cached stats if fresh, else None."""
+    entry = _dashboard_cache.get(range_str)
+    if entry and (_time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _set_dashboard_cache(range_str: str, data: dict):
+    _dashboard_cache[range_str] = {"data": data, "ts": _time.time()}
+
+
 # ── API Routes ───────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -343,6 +363,243 @@ def get_stats():
         "total_sessions": session_count,
         "recent_commands_24h": recent_commands,
     }
+
+
+@app.get("/api/dashboard-stats")
+def get_dashboard_stats(range: str = Query("30d", pattern="^(7d|30d|all)$")):
+    """Get comprehensive dashboard statistics."""
+    cached = _get_cached_dashboard_stats(range)
+    if cached:
+        return cached
+
+    now_ms = datetime.now().timestamp() * 1000
+    if range == "7d":
+        range_ms = 7 * 86400000
+    elif range == "30d":
+        range_ms = 30 * 86400000
+    else:
+        range_ms = None  # all time
+
+    cutoff_ms = (now_ms - range_ms) if range_ms else 0
+    prev_cutoff_ms = (cutoff_ms - range_ms) if range_ms else 0
+
+    # ── Read history ──
+    history = read_jsonl(CLAUDE_DIR / "history.jsonl")
+    history_in_range = [h for h in history if h.get("timestamp", 0) > cutoff_ms]
+    history_in_prev = [h for h in history if prev_cutoff_ms < h.get("timestamp", 0) <= cutoff_ms] if range_ms else []
+
+    # ── Daily series from history (commands) ──
+    daily_commands = defaultdict(int)
+    hourly_dist = [0] * 24
+    for h in history_in_range:
+        ts = h.get("timestamp", 0)
+        if ts:
+            dt = datetime.fromtimestamp(ts / 1000)
+            day_str = dt.strftime("%Y-%m-%d")
+            daily_commands[day_str] += 1
+            hourly_dist[dt.hour] += 1
+
+    # ── Scan projects ──
+    projects_dir = CLAUDE_DIR / "projects"
+    project_dirs = []
+    session_files_all = []
+    if projects_dir.exists():
+        for d in projects_dir.iterdir():
+            if d.is_dir():
+                project_dirs.append(d)
+                for sf in d.glob("*.jsonl"):
+                    session_files_all.append((d, sf))
+
+    # ── Per-project session counts & daily sessions ──
+    daily_sessions = defaultdict(int)
+    project_session_counts = defaultdict(lambda: {"count": 0, "name": "", "id": ""})
+    session_files_in_range = []
+
+    for project_dir, sf in session_files_all:
+        mtime = sf.stat().st_mtime
+        mtime_ms = mtime * 1000
+        if mtime_ms > cutoff_ms:
+            day_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+            daily_sessions[day_str] += 1
+            session_files_in_range.append((project_dir, sf))
+
+        # Count all sessions per project (not just in range) for top projects
+        pid = project_dir.name
+        project_session_counts[pid]["count"] += 1
+        project_session_counts[pid]["id"] = pid
+
+    # ── Resolve project display names ──
+    for project_dir in project_dirs:
+        pid = project_dir.name
+        if pid in project_session_counts and not project_session_counts[pid]["name"]:
+            # Try to get actual path from first session
+            for sf in project_dir.glob("*.jsonl"):
+                msgs = read_jsonl(sf, limit=3)
+                for m in msgs:
+                    cwd = m.get("cwd", "")
+                    if cwd:
+                        project_session_counts[pid]["name"] = cwd.rstrip("/").split("/")[-1]
+                        break
+                break
+            if not project_session_counts[pid]["name"]:
+                project_session_counts[pid]["name"] = pid
+
+    # ── Top 5 projects ──
+    top_projects = sorted(
+        project_session_counts.values(),
+        key=lambda x: x["count"],
+        reverse=True
+    )[:5]
+    top_projects_out = [
+        {"project_id": p["id"], "project_name": p["name"], "session_count": p["count"]}
+        for p in top_projects
+    ]
+
+    # ── Message types & token usage (sample up to 100 session files in range) ──
+    message_types = defaultdict(int)
+    total_input_tokens = 0
+    total_output_tokens = 0
+    session_durations = {"under_5min": 0, "5_to_15min": 0, "15_to_30min": 0, "30_to_60min": 0, "over_60min": 0}
+    daily_tokens = defaultdict(int)
+
+    files_to_scan = session_files_in_range if len(session_files_in_range) <= 100 else session_files_in_range[:100]
+
+    for project_dir, sf in files_to_scan:
+        msgs = read_jsonl(sf)
+        timestamps = []
+        for m in msgs:
+            msg_type = m.get("type", "")
+            if msg_type in ("user", "assistant"):
+                message_types[msg_type] += 1
+                ts = m.get("timestamp")
+                if ts:
+                    if isinstance(ts, str):
+                        try:
+                            ts = datetime.fromisoformat(ts).timestamp() * 1000
+                        except (ValueError, TypeError):
+                            ts = None
+                    if ts:
+                        timestamps.append(ts)
+
+            # Count tool_use and tool_result from content blocks
+            if msg_type == "assistant":
+                content = m.get("message", {}).get("content", [])
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict):
+                            bt = block.get("type", "")
+                            if bt == "tool_use":
+                                message_types["tool_use"] += 1
+
+                usage = m.get("message", {}).get("usage", {})
+                inp = usage.get("input_tokens", 0)
+                out = usage.get("output_tokens", 0)
+                total_input_tokens += inp
+                total_output_tokens += out
+
+                # Daily tokens
+                msg_ts = m.get("timestamp")
+                if msg_ts and (inp or out):
+                    if isinstance(msg_ts, (int, float)):
+                        dt = datetime.fromtimestamp(msg_ts / 1000 if msg_ts > 1e12 else msg_ts)
+                    elif isinstance(msg_ts, str):
+                        try:
+                            dt = datetime.fromisoformat(msg_ts)
+                        except (ValueError, TypeError):
+                            dt = None
+                    if dt:
+                        daily_tokens[dt.strftime("%Y-%m-%d")] += inp + out
+
+            if msg_type == "user":
+                content = m.get("message", {}).get("content", [])
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            message_types["tool_result"] += 1
+
+        # Session duration
+        if len(timestamps) >= 2:
+            duration_min = (max(timestamps) - min(timestamps)) / 60000
+            if duration_min < 5:
+                session_durations["under_5min"] += 1
+            elif duration_min < 15:
+                session_durations["5_to_15min"] += 1
+            elif duration_min < 30:
+                session_durations["15_to_30min"] += 1
+            elif duration_min < 60:
+                session_durations["30_to_60min"] += 1
+            else:
+                session_durations["over_60min"] += 1
+
+    # ── Build daily series ──
+    all_days = sorted(set(list(daily_commands.keys()) + list(daily_sessions.keys()) + list(daily_tokens.keys())))
+    daily_series = [
+        {
+            "date": d,
+            "commands": daily_commands.get(d, 0),
+            "sessions": daily_sessions.get(d, 0),
+            "tokens": daily_tokens.get(d, 0),
+        }
+        for d in all_days
+    ]
+
+    # ── Summary ──
+    total_commands = len(history)
+    total_sessions = len(session_files_all)
+    total_projects = len(project_dirs)
+
+    # ── Changes vs previous period ──
+    prev_commands = len(history_in_prev) if range_ms else 0
+    curr_commands = len(history_in_range)
+    commands_pct = round(((curr_commands - prev_commands) / prev_commands * 100), 1) if prev_commands > 0 else 0
+
+    # Session changes: count sessions modified in prev range
+    prev_session_count = 0
+    curr_session_count = 0
+    for _, sf in session_files_all:
+        mtime_ms = sf.stat().st_mtime * 1000
+        if mtime_ms > cutoff_ms:
+            curr_session_count += 1
+        elif range_ms and mtime_ms > prev_cutoff_ms:
+            prev_session_count += 1
+    sessions_pct = round(((curr_session_count - prev_session_count) / prev_session_count * 100), 1) if prev_session_count > 0 else 0
+
+    # New projects (simplified: just count dirs created in range)
+    projects_new = 0
+    for d in project_dirs:
+        try:
+            if d.stat().st_ctime * 1000 > cutoff_ms:
+                projects_new += 1
+        except OSError:
+            pass
+
+    tokens_pct = 0  # Would need previous period token scan; skip for simplicity
+
+    data = {
+        "summary": {
+            "total_commands": total_commands,
+            "total_sessions": total_sessions,
+            "total_projects": total_projects,
+            "total_tokens": {
+                "input": total_input_tokens,
+                "output": total_output_tokens,
+            },
+        },
+        "changes": {
+            "commands_pct": commands_pct,
+            "sessions_pct": sessions_pct,
+            "projects_new": projects_new,
+            "tokens_pct": tokens_pct,
+        },
+        "daily_series": daily_series,
+        "message_types": dict(message_types),
+        "top_projects": top_projects_out,
+        "hourly_distribution": hourly_dist,
+        "session_durations": session_durations,
+    }
+
+    _set_dashboard_cache(range, data)
+    return data
 
 
 @app.get("/api/recent-sessions")
