@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="0.0.8"
+VERSION="0.0.9"
 DEB_NAME="claude-history_${VERSION}_amd64.deb"
 BUILD_DIR="deb_package"
 
