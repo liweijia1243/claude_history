@@ -46,6 +46,23 @@ function compareByComparableName(left, right) {
   return getComparableName(left).localeCompare(getComparableName(right))
 }
 
+function normalizeQuery(query) {
+  if (typeof query === 'string') {
+    return query.trim().toLowerCase()
+  }
+
+  if (query == null) {
+    return ''
+  }
+
+  return String(query).trim().toLowerCase()
+}
+
+function normalizeSize(size) {
+  const normalizedSize = Number(size)
+  return Number.isFinite(normalizedSize) ? normalizedSize : Number.NEGATIVE_INFINITY
+}
+
 function isWithinTimeRange(plan, timeRange, now) {
   if (!timeRange || timeRange === 'all') {
     return true
@@ -57,7 +74,7 @@ function isWithinTimeRange(plan, timeRange, now) {
   }
 
   const modifiedTime = getModifiedTime(plan)
-  if (modifiedTime === null) {
+  if (modifiedTime === null || modifiedTime > now) {
     return false
   }
 
@@ -104,7 +121,7 @@ export function enrichPlan(plan, content) {
 }
 
 export function filterAndSortPlans(plans, { query, sortBy, timeRange, now = Date.now() }) {
-  const normalizedQuery = query.trim().toLowerCase()
+  const normalizedQuery = normalizeQuery(query)
 
   return [...plans]
     .filter((plan) => !normalizedQuery || plan.searchText.includes(normalizedQuery))
@@ -115,7 +132,8 @@ export function filterAndSortPlans(plans, { query, sortBy, timeRange, now = Date
       }
 
       if (sortBy === 'size') {
-        return right.size - left.size
+        const sizeDiff = normalizeSize(right.size) - normalizeSize(left.size)
+        return sizeDiff || compareByComparableName(left, right)
       }
 
       const modifiedDiff = (getModifiedTime(right) ?? 0) - (getModifiedTime(left) ?? 0)

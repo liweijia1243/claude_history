@@ -250,6 +250,98 @@ describe('filterAndSortPlans', () => {
       plans[1],
     ])
   })
+
+  it('normalizes nullish and non-string queries without crashing', () => {
+    expect(() =>
+      filterAndSortPlans(plans, { query: null, sortBy: 'modified', timeRange: 'all', now })
+    ).not.toThrow()
+    expect(() =>
+      filterAndSortPlans(plans, { query: undefined, sortBy: 'modified', timeRange: 'all', now })
+    ).not.toThrow()
+    expect(() =>
+      filterAndSortPlans(plans, { query: 123, sortBy: 'modified', timeRange: 'all', now })
+    ).not.toThrow()
+
+    expect(filterAndSortPlans(plans, { query: null, sortBy: 'modified', timeRange: 'all', now })).toEqual([
+      plans[1],
+      plans[0],
+      plans[2],
+    ])
+    expect(
+      filterAndSortPlans(plans, { query: undefined, sortBy: 'modified', timeRange: 'all', now })
+    ).toEqual([plans[1], plans[0], plans[2]])
+    expect(filterAndSortPlans(plans, { query: 123, sortBy: 'modified', timeRange: 'all', now })).toEqual(
+      []
+    )
+  })
+
+  it('sorts by size deterministically for equal and invalid sizes', () => {
+    const sizePlans = [
+      {
+        name: 'beta.md',
+        filename: 'beta.md',
+        size: '50',
+        modified: '2026-04-10T12:00:00.000Z',
+        searchText: 'beta size plan',
+      },
+      {
+        name: 'alpha.md',
+        filename: 'alpha.md',
+        size: 50,
+        modified: '2026-04-11T12:00:00.000Z',
+        searchText: 'alpha size plan',
+      },
+      {
+        name: 'delta.md',
+        filename: 'delta.md',
+        size: undefined,
+        modified: '2026-04-09T12:00:00.000Z',
+        searchText: 'delta size plan',
+      },
+      {
+        name: 'gamma.md',
+        filename: 'gamma.md',
+        size: 'oops',
+        modified: '2026-04-08T12:00:00.000Z',
+        searchText: 'gamma size plan',
+      },
+    ]
+
+    expect(() =>
+      filterAndSortPlans(sizePlans, { query: '', sortBy: 'size', timeRange: 'all', now })
+    ).not.toThrow()
+
+    expect(filterAndSortPlans(sizePlans, { query: '', sortBy: 'size', timeRange: 'all', now })).toEqual([
+      sizePlans[1],
+      sizePlans[0],
+      sizePlans[2],
+      sizePlans[3],
+    ])
+  })
+
+  it('excludes future timestamps from bounded recency filters but keeps them for all time', () => {
+    const futurePlans = [
+      {
+        name: 'future.md',
+        filename: 'future.md',
+        size: 1,
+        modified: '2026-04-16T12:00:00.000Z',
+        searchText: 'future plan',
+      },
+      ...plans,
+    ]
+
+    expect(
+      filterAndSortPlans(futurePlans, { query: '', sortBy: 'modified', timeRange: '24h', now })
+    ).toEqual([plans[1], plans[0]])
+
+    expect(filterAndSortPlans(futurePlans, { query: '', sortBy: 'modified', timeRange: 'all', now })).toEqual([
+      futurePlans[0],
+      plans[1],
+      plans[0],
+      plans[2],
+    ])
+  })
 })
 
 describe('resolveSelectedPlanName', () => {
