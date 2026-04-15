@@ -160,14 +160,87 @@ describe('filterAndSortPlans', () => {
     ).toEqual([backendPlans[1], backendPlans[0]])
   })
 
-  it('keeps invalid modified values from crashing filtering and sorts them last', () => {
+  it('excludes invalid modified values from bounded recency filters', () => {
+    expect(
+      filterAndSortPlans(backendPlans, {
+        query: '',
+        sortBy: 'modified',
+        timeRange: '7d',
+        now: new Date('2024-04-16T12:00:00.000Z').getTime(),
+      })
+    ).toEqual([backendPlans[1], backendPlans[0]])
+  })
+
+  it('keeps invalid modified values from crashing filtering and sorts them last for all time', () => {
     expect(() =>
-      filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: '7d', now })
+      filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: 'all', now })
     ).not.toThrow()
 
     expect(
       filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: 'all', now })
     ).toEqual([backendPlans[1], backendPlans[0], backendPlans[2]])
+  })
+
+  it('uses a deterministic tie-breaker when modified timestamps normalize equally', () => {
+    const tiedModifiedPlans = [
+      {
+        name: 'zeta.md',
+        filename: 'zeta.md',
+        size: 10,
+        modified: '2026-04-15T09:00:00.000Z',
+        searchText: 'zeta plan',
+      },
+      {
+        name: 'alpha.md',
+        filename: 'alpha.md',
+        size: 20,
+        modified: 1776243600,
+        searchText: 'alpha plan',
+      },
+    ]
+
+    expect(
+      filterAndSortPlans(tiedModifiedPlans, {
+        query: '',
+        sortBy: 'modified',
+        timeRange: 'all',
+        now,
+      })
+    ).toEqual([tiedModifiedPlans[1], tiedModifiedPlans[0]])
+  })
+
+  it('sorts by name defensively and deterministically when names are missing or invalid', () => {
+    const mixedNamePlans = [
+      {
+        filename: 'beta.md',
+        name: null,
+        size: 10,
+        modified: '2026-04-10T12:00:00.000Z',
+        searchText: 'beta plan',
+      },
+      {
+        filename: 'alpha.md',
+        name: 42,
+        size: 10,
+        modified: '2026-04-10T12:00:00.000Z',
+        searchText: 'alpha plan',
+      },
+      {
+        filename: 'gamma.md',
+        name: 'gamma.md',
+        size: 10,
+        modified: '2026-04-10T12:00:00.000Z',
+        searchText: 'gamma plan',
+      },
+    ]
+
+    expect(() =>
+      filterAndSortPlans(mixedNamePlans, { query: '', sortBy: 'name', timeRange: 'all', now })
+    ).not.toThrow()
+
+    expect(
+      filterAndSortPlans(mixedNamePlans, { query: '', sortBy: 'name', timeRange: 'all', now })
+    ).toEqual([mixedNamePlans[1], mixedNamePlans[0], mixedNamePlans[2]])
   })
 
   it('sorts by size descending', () => {

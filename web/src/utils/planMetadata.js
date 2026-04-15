@@ -23,11 +23,27 @@ function normalizeModifiedTime(modified) {
   }
 
   const parsedTime = new Date(modified).getTime()
-  return Number.isNaN(parsedTime) ? 0 : parsedTime
+  return Number.isNaN(parsedTime) ? null : parsedTime
 }
 
 function getModifiedTime(plan) {
   return normalizeModifiedTime(plan.modified)
+}
+
+function getComparableName(plan) {
+  if (typeof plan.filename === 'string') {
+    return plan.filename
+  }
+
+  if (typeof plan.name === 'string') {
+    return plan.name
+  }
+
+  return ''
+}
+
+function compareByComparableName(left, right) {
+  return getComparableName(left).localeCompare(getComparableName(right))
 }
 
 function isWithinTimeRange(plan, timeRange, now) {
@@ -40,7 +56,12 @@ function isWithinTimeRange(plan, timeRange, now) {
     return true
   }
 
-  return now - getModifiedTime(plan) <= range
+  const modifiedTime = getModifiedTime(plan)
+  if (modifiedTime === null) {
+    return false
+  }
+
+  return now - modifiedTime <= range
 }
 
 export function extractPlanTitle(content, fallbackName) {
@@ -90,14 +111,15 @@ export function filterAndSortPlans(plans, { query, sortBy, timeRange, now = Date
     .filter((plan) => isWithinTimeRange(plan, timeRange, now))
     .sort((left, right) => {
       if (sortBy === 'name') {
-        return left.name.localeCompare(right.name)
+        return compareByComparableName(left, right)
       }
 
       if (sortBy === 'size') {
         return right.size - left.size
       }
 
-      return getModifiedTime(right) - getModifiedTime(left)
+      const modifiedDiff = (getModifiedTime(right) ?? 0) - (getModifiedTime(left) ?? 0)
+      return modifiedDiff || compareByComparableName(left, right)
     })
 }
 
