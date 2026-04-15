@@ -1,10 +1,24 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import 'highlight.js/styles/github-dark.css'
 import hljs from 'highlight.js'
 
-// Custom renderer for code blocks
+import { enrichPlan, filterAndSortPlans, resolveSelectedPlanName } from '../utils/planMetadata'
+
+const SORT_OPTIONS = [
+  { value: 'modified', label: '最近更新' },
+  { value: 'name', label: '文件名' },
+  { value: 'size', label: '文件大小' },
+]
+
+const TIME_RANGE_OPTIONS = [
+  { value: 'all', label: '全部时间' },
+  { value: '24h', label: '最近 24 小时' },
+  { value: '7d', label: '最近 7 天' },
+  { value: '30d', label: '最近 30 天' },
+]
+
 const renderer = new marked.Renderer()
 renderer.code = function({ text, lang }) {
   const language = lang || ''
@@ -19,22 +33,73 @@ marked.setOptions({
 })
 
 const plans = ref([])
-const selectedPlan = ref(null)
-const planContent = ref('')
+const selectedPlanName = ref(null)
 const loading = ref(true)
+const searchQuery = ref('')
+const sortBy = ref('modified')
+const timeRange = ref('all')
+
+const filteredPlans = computed(() =>
+  filterAndSortPlans(plans.value, {
+    query: searchQuery.value,
+    sortBy: sortBy.value,
+    timeRange: timeRange.value,
+  })
+)
+
+const selectedPlan = computed(() =>
+  filteredPlans.value.find((plan) => plan.name === selectedPlanName.value) ?? null
+)
+
+const renderedMarkdown = computed(() => {
+  if (!selectedPlan.value?.content) {
+    return ''
+  }
+
+  return marked.parse(selectedPlan.value.content)
+})
+
+watch(
+  filteredPlans,
+  (nextPlans) => {
+    selectedPlanName.value = resolveSelectedPlanName(selectedPlanName.value, nextPlans)
+  },
+  { immediate: true }
+)
 
 onMounted(async () => {
-  const res = await fetch('/api/plans')
-  plans.value = await res.json()
-  loading.value = false
-  // Auto-select first plan
-  if (plans.value.length > 0) {
-    selectPlan(plans.value[0])
+  loading.value = true
+
+  try {
+    const res = await fetch('/api/plans')
+    const rawPlans = await res.json()
+    const detailedPlans = await Promise.all(
+      rawPlans.map(async (plan) => {
+        const detailRes = await fetch(`/api/plans/${plan.name}`)
+        const detail = await detailRes.json()
+        return enrichPlan(plan, detail.content)
+      })
+    )
+
+    plans.value = detailedPlans
+  } finally {
+    loading.value = false
   }
 })
 
-function formatDate(ts) {
-  return new Date(ts * 1000).toLocaleDateString('zh-CN', {
+function formatDate(value) {
+  if (value == null) {
+    return '未知时间'
+  }
+
+  const normalized = typeof value === 'number' && value < 1e12 ? value * 1000 : value
+  const date = new Date(normalized)
+
+  if (Number.isNaN(date.getTime())) {
+    return '未知时间'
+  }
+
+  return date.toLocaleString('zh-CN', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -43,70 +108,153 @@ function formatDate(ts) {
 }
 
 function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B'
-  return (bytes / 1024).toFixed(1) + ' KB'
+  const size = Number(bytes)
+
+  if (!Number.isFinite(size) || size < 0) {
+    return '未知大小'
+  }
+
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-async function selectPlan(plan) {
-  selectedPlan.value = plan.name
-  const res = await fetch(`/api/plans/${plan.name}`)
-  const data = await res.json()
-  planContent.value = data.content
-}
-
-function renderedMarkdown() {
-  if (!planContent.value) return ''
-  return marked.parse(planContent.value)
+function selectPlan(planName) {
+  selectedPlanName.value = planName
 }
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <!-- Header with tabs -->
-    <div class="flex-shrink-0 h-14 border-b border-[var(--border-color)] flex items-center px-6 gap-4 bg-[var(--bg-page)]">
+  <div class="flex h-full flex-col">
+    <div class="flex h-14 flex-shrink-0 items-center gap-4 border-b border-[var(--border-color)] bg-[var(--bg-page)] px-6">
       <h1 class="text-lg font-semibold text-[var(--text-primary)]">Plans</h1>
-      <span class="text-sm text-[var(--text-secondary)]">{{ plans.length }}</span>
+      <span class="text-sm text-[var(--text-secondary)]">{{ filteredPlans.length }} / {{ plans.length }}</span>
     </div>
 
-    <!-- Tab bar -->
-    <div v-if="!loading && plans.length > 0" class="flex-shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-page)] px-6">
-      <div class="flex gap-1 -mb-px overflow-x-auto py-2">
-        <button
-          v-for="plan in plans"
-          :key="plan.name"
-          @click="selectPlan(plan)"
-          :class="[
-            selectedPlan === plan.name
-              ? 'border-blue-500 text-[var(--text-primary)] bg-[var(--bg-card)]'
-              : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-color)]'
-          ]"
-          class="flex items-center gap-2 px-4 py-2 border-b-2 text-sm font-medium transition-colors whitespace-nowrap rounded-t-lg"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/></svg>
-          {{ plan.name }}
-          <span class="text-xs text-[var(--text-secondary)]">{{ formatSize(plan.size) }}</span>
-        </button>
-      </div>
-    </div>
+    <div class="flex min-h-0 flex-1">
+      <aside class="w-72 flex-shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-page)] p-5">
+        <div class="space-y-5">
+          <section>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+              搜索
+            </label>
+            <input
+              v-model="searchQuery"
+              type="search"
+              placeholder="搜索标题、文件名或摘要"
+              class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500"
+            />
+          </section>
 
-    <!-- Content -->
-    <div class="flex-1 overflow-auto">
-      <div v-if="loading" class="text-[var(--text-secondary)] p-8 text-center">Loading...</div>
+          <section>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+              排序
+            </label>
+            <select
+              v-model="sortBy"
+              class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500"
+            >
+              <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </section>
 
-      <div v-else-if="plans.length === 0" class="text-[var(--text-secondary)] p-8 text-center">No plans found.</div>
+          <section>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+              时间范围
+            </label>
+            <select
+              v-model="timeRange"
+              class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500"
+            >
+              <option v-for="option in TIME_RANGE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </section>
+        </div>
+      </aside>
 
-      <div v-else-if="selectedPlan && planContent" class="max-w-4xl mx-auto py-8 px-6">
-        <article
-          class="prose prose-sm max-w-none"
-          v-html="renderedMarkdown()"
-        ></article>
-      </div>
+      <section class="flex min-h-0 w-[28rem] flex-shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-page)]">
+        <div class="border-b border-[var(--border-color)] px-5 py-4">
+          <p class="text-sm text-[var(--text-secondary)]">计划列表</p>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto p-4">
+          <div v-if="loading" class="rounded-2xl border border-dashed border-[var(--border-color)] p-6 text-center text-sm text-[var(--text-secondary)]">
+            Loading...
+          </div>
+
+          <div v-else-if="filteredPlans.length === 0" class="rounded-2xl border border-dashed border-[var(--border-color)] p-6 text-center text-sm text-[var(--text-secondary)]">
+            No plans match the current filters.
+          </div>
+
+          <div v-else class="space-y-3">
+            <button
+              v-for="plan in filteredPlans"
+              :key="plan.name"
+              :title="plan.name"
+              type="button"
+              @click="selectPlan(plan.name)"
+              :class="selectedPlanName === plan.name
+                ? 'border-blue-500 bg-blue-500/10 shadow-sm'
+                : 'border-[var(--border-color)] bg-[var(--bg-card)] hover:border-blue-400/60 hover:bg-[var(--bg-hover)]'"
+              class="block w-full rounded-2xl border p-4 text-left transition"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <h2 class="truncate text-sm font-semibold text-[var(--text-primary)]">{{ plan.displayTitle }}</h2>
+                  <p class="mt-1 truncate text-xs text-[var(--text-secondary)]">{{ plan.name }}</p>
+                </div>
+                <span class="rounded-full bg-[var(--bg-page)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
+                  {{ formatSize(plan.size) }}
+                </span>
+              </div>
+
+              <div class="mt-3 flex items-center justify-between gap-3 text-xs text-[var(--text-secondary)]">
+                <span>{{ formatDate(plan.modified) }}</span>
+              </div>
+
+              <p class="mt-3 line-clamp-3 text-sm leading-6 text-[var(--text-secondary)]">
+                {{ plan.summary }}
+              </p>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="min-h-0 min-w-0 flex-1 bg-[var(--bg-page)]">
+        <div class="flex h-full flex-col">
+          <div class="flex items-center justify-between border-b border-[var(--border-color)] px-6 py-4">
+            <div>
+              <p class="text-sm font-semibold text-[var(--text-primary)]">
+                {{ selectedPlan?.displayTitle || '预览' }}
+              </p>
+              <p v-if="selectedPlan" class="mt-1 text-xs text-[var(--text-secondary)]">
+                {{ selectedPlan.name }}
+              </p>
+            </div>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <div v-if="loading" class="p-8 text-center text-[var(--text-secondary)]">Loading...</div>
+
+            <div v-else-if="!selectedPlan" class="flex h-full items-center justify-center p-8 text-center text-sm text-[var(--text-secondary)]">
+              No plans match the current filters.
+            </div>
+
+            <div v-else class="mx-auto max-w-4xl px-6 py-8">
+              <article class="plan-preview prose prose-sm max-w-none" v-html="renderedMarkdown"></article>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Prose customization */
 :deep(.prose) {
   --tw-prose-body: var(--text-primary);
   --tw-prose-headings: var(--text-primary);
@@ -214,7 +362,6 @@ function renderedMarkdown() {
   background-color: rgba(var(--bg-card), 0.5);
 }
 
-/* Code block styling - always dark background */
 :deep(.prose pre) {
   background-color: #1e1e1e !important;
   border-radius: 0.75rem;
