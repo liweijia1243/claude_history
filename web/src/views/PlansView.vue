@@ -14,7 +14,6 @@ const SORT_OPTIONS = [
 
 const TIME_RANGE_OPTIONS = [
   { value: 'all', label: '全部时间' },
-  { value: '24h', label: '最近 24 小时' },
   { value: '7d', label: '最近 7 天' },
   { value: '30d', label: '最近 30 天' },
 ]
@@ -241,7 +240,7 @@ function selectPlan(planName) {
             <div v-if="loading" class="p-8 text-center text-[var(--text-secondary)]">Loading...</div>
 
             <div v-else-if="!selectedPlan" class="flex h-full items-center justify-center p-8 text-center text-sm text-[var(--text-secondary)]">
-              No plans match the current filters.
+              Select a plan from the list to preview its content.
             </div>
 
             <div v-else class="mx-auto max-w-4xl px-6 py-8">

@@ -135,7 +135,7 @@ describe('PlansView', () => {
     expect(wrapper.find('.plan-preview').text()).not.toContain('Beta preview content.')
   })
 
-  it('shows empty state when no plan matches filters', async () => {
+  it('shows list and preview empty states when no plan matches filters', async () => {
     const wrapper = mount(PlansView)
 
     await flushPromises()
@@ -144,8 +144,10 @@ describe('PlansView', () => {
     await searchInput.setValue('missing')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('No plans match the current filters.')
-    expect(wrapper.text()).not.toContain('Alpha preview content.')
-    expect(wrapper.text()).not.toContain('Beta preview content.')
+    const text = wrapper.text()
+    expect(text).toContain('No plans match the current filters.')
+    expect(text).toContain('Select a plan from the list to preview its content.')
+    expect(text).not.toContain('Alpha preview content.')
+    expect(text).not.toContain('Beta preview content.')
   })
 })

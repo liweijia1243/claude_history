@@ -149,13 +149,13 @@ describe('filterAndSortPlans', () => {
     ).toEqual([backendPlans[1], backendPlans[0], backendPlans[2]])
   })
 
-  it('filters backend seconds-based modified values by time range', () => {
+  it('filters backend seconds-based modified values by seven-day range', () => {
     expect(
       filterAndSortPlans(backendPlans, {
         query: '',
         sortBy: 'modified',
-        timeRange: '24h',
-        now: new Date('2024-04-15T12:00:00.000Z').getTime(),
+        timeRange: '7d',
+        now: new Date('2024-04-20T12:00:00.000Z').getTime(),
       })
     ).toEqual([backendPlans[1], backendPlans[0]])
   })
@@ -332,7 +332,7 @@ describe('filterAndSortPlans', () => {
     ]
 
     expect(
-      filterAndSortPlans(futurePlans, { query: '', sortBy: 'modified', timeRange: '24h', now })
+      filterAndSortPlans(futurePlans, { query: '', sortBy: 'modified', timeRange: '7d', now })
     ).toEqual([plans[1], plans[0]])
 
     expect(filterAndSortPlans(futurePlans, { query: '', sortBy: 'modified', timeRange: 'all', now })).toEqual([
