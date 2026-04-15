@@ -37,8 +37,21 @@ describe('extractPlanSummary', () => {
     )
   })
 
-  it('truncates the cleaned summary to the given max length', () => {
-    expect(extractPlanSummary('Alpha beta gamma delta', 10)).toBe('Alpha beta…')
+  it('strips common markdown structure markers from summaries', () => {
+    const content = [
+      '# Launch Plan',
+      '',
+      '## Milestones',
+      '- First item',
+      '1. Second item',
+      '> Final note',
+    ].join('\n')
+
+    expect(extractPlanSummary(content)).toBe('Milestones First item Second item Final note')
+  })
+
+  it('truncates at a word boundary when possible', () => {
+    expect(extractPlanSummary('Alpha beta gamma delta', 13)).toBe('Alpha beta…')
   })
 
   it('returns fallback when no summary content remains', () => {
@@ -47,9 +60,10 @@ describe('extractPlanSummary', () => {
 })
 
 describe('enrichPlan', () => {
-  it('attaches derived metadata fields', () => {
+  it('attaches derived metadata fields using filename in search text', () => {
     const plan = {
-      name: 'plan-a.md',
+      name: 'display-only.md',
+      filename: 'plan-a.md',
       size: 42,
       modified: '2026-04-10T12:00:00.000Z',
     }
@@ -88,6 +102,27 @@ describe('filterAndSortPlans', () => {
     },
   ]
 
+  const backendPlans = [
+    {
+      name: 'old.md',
+      size: 10,
+      modified: 1713096000,
+      searchText: 'old backend plan',
+    },
+    {
+      name: 'latest.md',
+      size: 20,
+      modified: 1713182400,
+      searchText: 'latest backend plan',
+    },
+    {
+      name: 'invalid.md',
+      size: 5,
+      modified: 'not-a-date',
+      searchText: 'invalid backend plan',
+    },
+  ]
+
   it('filters by query and sorts by modified descending', () => {
     expect(
       filterAndSortPlans(plans, { query: 'checklist', sortBy: 'modified', timeRange: 'all', now })
@@ -106,6 +141,33 @@ describe('filterAndSortPlans', () => {
       plans[2],
       plans[0],
     ])
+  })
+
+  it('sorts backend seconds-based modified values in descending order', () => {
+    expect(
+      filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: 'all', now })
+    ).toEqual([backendPlans[1], backendPlans[0], backendPlans[2]])
+  })
+
+  it('filters backend seconds-based modified values by time range', () => {
+    expect(
+      filterAndSortPlans(backendPlans, {
+        query: '',
+        sortBy: 'modified',
+        timeRange: '24h',
+        now: new Date('2024-04-15T12:00:00.000Z').getTime(),
+      })
+    ).toEqual([backendPlans[1], backendPlans[0]])
+  })
+
+  it('keeps invalid modified values from crashing filtering and sorts them last', () => {
+    expect(() =>
+      filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: '7d', now })
+    ).not.toThrow()
+
+    expect(
+      filterAndSortPlans(backendPlans, { query: '', sortBy: 'modified', timeRange: 'all', now })
+    ).toEqual([backendPlans[1], backendPlans[0], backendPlans[2]])
   })
 
   it('sorts by size descending', () => {

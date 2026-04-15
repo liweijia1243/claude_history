@@ -11,11 +11,23 @@ function truncateText(text, maxLength) {
   }
 
   const truncated = text.slice(0, maxLength).trimEnd()
-  return `${truncated}…`
+  const lastSpaceIndex = truncated.lastIndexOf(' ')
+  const wordBoundaryText = lastSpaceIndex > 0 ? truncated.slice(0, lastSpaceIndex).trimEnd() : ''
+
+  return `${wordBoundaryText || truncated}…`
+}
+
+function normalizeModifiedTime(modified) {
+  if (typeof modified === 'number' && Number.isFinite(modified)) {
+    return modified < 1e12 ? modified * 1000 : modified
+  }
+
+  const parsedTime = new Date(modified).getTime()
+  return Number.isNaN(parsedTime) ? 0 : parsedTime
 }
 
 function getModifiedTime(plan) {
-  return new Date(plan.modified).getTime()
+  return normalizeModifiedTime(plan.modified)
 }
 
 function isWithinTimeRange(plan, timeRange, now) {
@@ -42,6 +54,10 @@ export function extractPlanSummary(content, maxLength = 160) {
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/^#{2,}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '')
     .replace(/\s+/g, ' ')
     .trim()
 
@@ -55,13 +71,14 @@ export function extractPlanSummary(content, maxLength = 160) {
 export function enrichPlan(plan, content) {
   const displayTitle = extractPlanTitle(content, plan.name)
   const summary = extractPlanSummary(content)
+  const searchFilename = plan.filename || plan.name
 
   return {
     ...plan,
     content,
     displayTitle,
     summary,
-    searchText: `${displayTitle} ${plan.name} ${summary}`.toLowerCase(),
+    searchText: `${displayTitle} ${searchFilename} ${summary}`.toLowerCase(),
   }
 }
 
