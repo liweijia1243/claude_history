@@ -232,7 +232,7 @@ function selectPlan(planName) {
                 {{ selectedPlan?.displayTitle || '预览' }}
               </p>
               <p v-if="selectedPlan" class="mt-1 text-xs text-[var(--text-secondary)]">
-                {{ selectedPlan.name }}
+                {{ selectedPlan.filename || selectedPlan.name }}
               </p>
             </div>
           </div>

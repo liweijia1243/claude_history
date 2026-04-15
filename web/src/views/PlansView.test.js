@@ -60,7 +60,7 @@ describe('PlansView', () => {
     vi.restoreAllMocks()
   })
 
-  it('loads plan details and defaults to the first filtered preview', async () => {
+  it('defaults preview to the first plan in the filtered and modified-desc sorted list', async () => {
     const wrapper = mount(PlansView)
 
     await flushPromises()
@@ -68,13 +68,16 @@ describe('PlansView', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/plans')
     expect(global.fetch).toHaveBeenCalledWith('/api/plans/alpha')
     expect(global.fetch).toHaveBeenCalledWith('/api/plans/beta')
-    expect(wrapper.html()).toContain('<h1>Beta Plan</h1>')
-    expect(wrapper.text()).toContain('Beta preview content.')
+    expect(wrapper.find('.plan-preview').html()).toContain('<h1>Beta Plan</h1>')
+    expect(wrapper.find('.plan-preview').text()).toContain('Beta preview content.')
     expect(wrapper.text()).toContain('alpha.md')
+    expect(wrapper.text()).toContain('beta.md')
+    expect(wrapper.find('button[title="beta"]').classes()).toContain('border-blue-500')
+    expect(wrapper.find('button[title="alpha"]').classes()).not.toContain('border-blue-500')
     expect(wrapper.text()).toContain('beta.md')
   })
 
-  it('loads the filtered plan preview when searching by plan name', async () => {
+  it('keeps the remaining filtered plan active across list and preview columns', async () => {
     const wrapper = mount(PlansView)
 
     await flushPromises()
@@ -85,11 +88,14 @@ describe('PlansView', () => {
 
     expect(global.fetch).toHaveBeenCalledWith('/api/plans')
     expect(global.fetch).toHaveBeenCalledWith('/api/plans/beta')
-    expect(wrapper.html()).toContain('<h1>Beta Plan</h1>')
-    expect(wrapper.text()).toContain('Beta preview content.')
+    expect(wrapper.findAll('button[title]').map((button) => button.attributes('title'))).toEqual(['beta'])
+    expect(wrapper.find('button[title="beta"]').classes()).toContain('border-blue-500')
+    expect(wrapper.find('.plan-preview').html()).toContain('<h1>Beta Plan</h1>')
+    expect(wrapper.find('.plan-preview').text()).toContain('Beta preview content.')
+    expect(wrapper.text()).toContain('beta.md')
   })
 
-  it('switches preview when the selected plan is filtered out', async () => {
+  it('switches the active card and preview when filtering removes the current selection', async () => {
     const wrapper = mount(PlansView)
 
     await flushPromises()
@@ -99,14 +105,18 @@ describe('PlansView', () => {
     await flushPromises()
 
     expect(global.fetch).toHaveBeenCalledWith('/api/plans/beta')
-    expect(wrapper.text()).toContain('Beta preview content.')
+    expect(wrapper.find('button[title="beta"]').classes()).toContain('border-blue-500')
+    expect(wrapper.find('.plan-preview').text()).toContain('Beta preview content.')
 
     const searchInput = wrapper.get('input[type="search"]')
     await searchInput.setValue('alpha')
     await flushPromises()
 
-    expect(wrapper.html()).toContain('<h1>Alpha Plan</h1>')
-    expect(wrapper.text()).toContain('Alpha preview content.')
+    expect(wrapper.findAll('button[title]').map((button) => button.attributes('title'))).toEqual(['alpha'])
+    expect(wrapper.find('button[title="alpha"]').classes()).toContain('border-blue-500')
+    expect(wrapper.find('.plan-preview').html()).toContain('<h1>Alpha Plan</h1>')
+    expect(wrapper.find('.plan-preview').text()).toContain('Alpha preview content.')
+    expect(wrapper.text()).toContain('alpha.md')
   })
 
   it('does not keep showing the previously selected preview after filtering it out', async () => {
