@@ -6,11 +6,13 @@ import PlansView from './PlansView.vue'
 const plansResponse = [
   {
     name: 'alpha',
+    filename: 'alpha.md',
     size: 1200,
     modified: 1713096000,
   },
   {
     name: 'beta',
+    filename: 'beta.md',
     size: 800,
     modified: 1713182400,
   },
@@ -68,8 +70,8 @@ describe('PlansView', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/plans/beta')
     expect(wrapper.html()).toContain('<h1>Beta Plan</h1>')
     expect(wrapper.text()).toContain('Beta preview content.')
-    expect(wrapper.text()).toContain('alpha')
-    expect(wrapper.text()).toContain('beta')
+    expect(wrapper.text()).toContain('alpha.md')
+    expect(wrapper.text()).toContain('beta.md')
   })
 
   it('loads the filtered plan preview when searching by plan name', async () => {

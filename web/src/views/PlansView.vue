@@ -205,7 +205,7 @@ function selectPlan(planName) {
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <h2 class="truncate text-sm font-semibold text-[var(--text-primary)]">{{ plan.displayTitle }}</h2>
-                  <p class="mt-1 truncate text-xs text-[var(--text-secondary)]">{{ plan.name }}</p>
+                  <p class="mt-1 truncate text-xs text-[var(--text-secondary)]">{{ plan.filename || plan.name }}</p>
                 </div>
                 <span class="rounded-full bg-[var(--bg-page)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
                   {{ formatSize(plan.size) }}
