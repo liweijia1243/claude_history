@@ -14,3 +14,4 @@ build/
 *.spec
 *.deb
 .superpowers
+.worktrees/
