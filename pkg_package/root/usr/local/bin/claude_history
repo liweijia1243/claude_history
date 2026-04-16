@@ -121,7 +121,7 @@ SERVER_PID=$!
 # 等待端口就绪
 echo "正在启动 Claude History Viewer..."
 SERVER_READY=false
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
     if curl -s -o /dev/null "http://localhost:${PORT}/api/stats" 2>/dev/null; then
         SERVER_READY=true
         break
