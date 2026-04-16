@@ -32,17 +32,18 @@ description: "GitHub Release 发版命令。用法: /github_release <version>，
 
 ## 步骤 3: 更新版本号
 
-修改以下两个文件中的版本号：
+修改以下三个文件中的版本号：
 
 1. `build_deb.sh` 第 7 行：`VERSION="x.y.z"` → `VERSION="{version}"`
 2. `deb_package/DEBIAN/control` 第 2 行：`Version: x.y.z` → `Version: {version}`
+3. `build_pkg.sh`：`VERSION="x.y.z"` → `VERSION="{version}"`
 
 其中 `{version}` 替换为实际版本号。
 
 ## 步骤 4: 提交版本变更
 
 ```bash
-git add build_deb.sh deb_package/DEBIAN/control
+git add build_deb.sh deb_package/DEBIAN/control build_pkg.sh
 git commit -m "chore: 发布版本升至 v{version}"
 ```
 
@@ -54,10 +55,15 @@ git push origin main
 git push origin v{version}
 ```
 
-## 步骤 6: 本地构建 deb 包
+## 步骤 6: 本地构建包
 
 ```bash
-bash build_deb.sh
+# 根据当前系统构建
+if [ "$(uname)" = "Darwin" ]; then
+    bash build_pkg.sh
+else
+    bash build_deb.sh
+fi
 ```
 
 如果构建失败，停止流程并提示用户。
@@ -83,11 +89,16 @@ bash build_deb.sh
 
 ### 安装
 
+**Ubuntu/Debian:**
 sudo dpkg -i claude-history_{version}_amd64.deb
 sudo apt-get install -f
 claude_history
 
-> 支持 Ubuntu 20.04+，启动后自动在浏览器中打开 http://localhost:8787
+**macOS:**
+sudo installer -pkg claude-history_{version}_arm64.pkg -target /
+claude_history
+
+> 支持 Ubuntu 20.04+ 和 macOS (Apple Silicon)，启动后自动在浏览器中打开 http://localhost:8787
 ```
 
 ## 步骤 8: 创建 GitHub Release
@@ -95,7 +106,10 @@ claude_history
 使用生成的 release note 创建 release：
 
 ```bash
-gh release create v{version} ./claude-history_{version}_amd64.deb --title "v{version}" --notes "{release_note}"
+ASSETS=""
+[ -f claude-history_${VERSION}_amd64.deb ] && ASSETS+="claude-history_${VERSION}_amd64.deb "
+[ -f claude-history_${VERSION}_arm64.pkg ] && ASSETS+="claude-history_${VERSION}_arm64.pkg "
+gh release create v${VERSION} $ASSETS --title "v${VERSION}" --notes "${RELEASE_NOTE}"
 ```
 
 完成后输出 release URL。
