@@ -92,7 +92,7 @@ if [ -f "$UPDATER" ]; then
 fi
 
 # 检查端口是否被占用（macOS: 使用 lsof）
-if lsof -i :"$PORT" -t >/dev/null 2>&1; then
+if lsof -i :"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
     echo "错误: 端口 $PORT 已被占用" >&2
     echo "请先关闭占用该端口的程序" >&2
     exit 1
@@ -120,12 +120,18 @@ SERVER_PID=$!
 
 # 等待端口就绪
 echo "正在启动 Claude History Viewer..."
+SERVER_READY=false
 for i in $(seq 1 30); do
     if curl -s -o /dev/null "http://localhost:${PORT}/api/stats" 2>/dev/null; then
+        SERVER_READY=true
         break
     fi
     sleep 0.5
 done
+if [ "$SERVER_READY" = false ]; then
+    echo "错误: 服务启动超时" >&2
+    cleanup
+fi
 
 # 打开浏览器（macOS: 使用 open）
 echo "正在打开浏览器: $ACCESS"
