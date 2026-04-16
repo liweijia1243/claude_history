@@ -105,11 +105,16 @@ claude_history
 
 使用生成的 release note 创建 release：
 
+收集当前目录下所有已构建的安装包：
+
 ```bash
 ASSETS=""
-[ -f claude-history_${VERSION}_amd64.deb ] && ASSETS+="claude-history_${VERSION}_amd64.deb "
-[ -f claude-history_${VERSION}_arm64.pkg ] && ASSETS+="claude-history_${VERSION}_arm64.pkg "
-gh release create v${VERSION} $ASSETS --title "v${VERSION}" --notes "${RELEASE_NOTE}"
+[ -f claude-history_{version}_amd64.deb ] && ASSETS+="claude-history_{version}_amd64.deb "
+[ -f claude-history_{version}_arm64.pkg ] && ASSETS+="claude-history_{version}_arm64.pkg "
+
+gh release create v{version} $ASSETS --title "v{version}" --notes "{release_note}"
 ```
+
+其中 `{version}` 替换为实际版本号，`{release_note}` 替换为步骤 7 生成的 release note 内容。
 
 完成后输出 release URL。
