@@ -1,0 +1,6 @@
+#!/bin/bash
+# 设置可执行权限
+chmod +x /usr/local/claude-history/claude-history-server
+chmod +x /usr/local/bin/claude_history
+chmod +x /usr/local/claude-history/updater-mac
+exit 0

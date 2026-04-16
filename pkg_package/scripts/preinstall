@@ -1,0 +1,4 @@
+#!/bin/bash
+# 安装前：停掉正在运行的旧版
+pkill -f "/usr/local/claude-history/claude-history-server" 2>/dev/null || true
+exit 0
