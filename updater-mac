@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Claude History Viewer 自动更新器 (macOS)"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    import urllib.error
+    import json
+    HAS_REQUESTS = False
+
+try:
+    from packaging.version import parse as parse_version
+except ImportError:
+    def parse_version(v):
+        return tuple(int(x) for x in v.split('.'))
+
+GITHUB_REPO = "liweijia1243/claude_history"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+INSTALL_DIR = "/usr/local/claude-history"
+VERSION_FILE = f"{INSTALL_DIR}/VERSION"
+
+
+def get_current_version():
+    try:
+        with open(VERSION_FILE, 'r') as f:
+            return f.read().strip()
+    except (FileNotFoundError, IOError):
+        return "0.0.0"
+
+
+def get_latest_release():
+    if HAS_REQUESTS:
+        response = requests.get(GITHUB_API_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    else:
+        req = urllib.request.Request(GITHUB_API_URL, headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "claude-history-updater"
+        })
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+
+    version = data["tag_name"].lstrip("v")
+
+    # 查找 .pkg 文件（macOS）
+    pkg_url = None
+    for asset in data.get("assets", []):
+        if asset["name"].endswith(".pkg") and "arm64" in asset["name"]:
+            pkg_url = asset["browser_download_url"]
+            break
+
+    return version, pkg_url
+
+
+def download_file(url, dest):
+    if HAS_REQUESTS:
+        response = requests.get(url, timeout=60, stream=True)
+        response.raise_for_status()
+        with open(dest, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+    else:
+        urllib.request.urlretrieve(url, dest)
+
+
+def cmd_check():
+    try:
+        current = get_current_version()
+        latest, _ = get_latest_release()
+
+        if parse_version(latest) > parse_version(current):
+            print(f"UPDATE_AVAILABLE:v{latest}")
+    except Exception:
+        pass
+
+
+def cmd_update():
+    try:
+        current = get_current_version()
+        print(f"当前版本: {current}")
+        print("正在检查更新...")
+
+        latest, pkg_url = get_latest_release()
+
+        if parse_version(latest) <= parse_version(current):
+            print(f"已是最新版本: {current}")
+            sys.exit(0)
+
+        print(f"发现新版本: {latest}")
+
+        if not pkg_url:
+            print("错误: 未找到 .pkg 安装包", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"正在下载: {pkg_url}")
+        with tempfile.NamedTemporaryFile(suffix=".pkg", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        download_file(pkg_url, tmp_path)
+        print(f"下载完成: {tmp_path}")
+
+        print("正在安装...")
+        result = subprocess.run(
+            ["sudo", "installer", "-pkg", tmp_path, "-target", "/"],
+            capture_output=True,
+            text=True
+        )
+
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+        if result.returncode != 0:
+            print(f"安装失败: {result.stderr}", file=sys.stderr)
+            sys.exit(1)
+
+        print("")
+        print("更新成功!")
+        print("请重新运行 claude_history 启动新版本")
+        sys.exit(0)
+
+    except KeyError as e:
+        print(f"解析错误: 缺少字段 {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        error_name = type(e).__name__
+        if "RequestException" in error_name or "URLError" in error_name or "HTTPError" in error_name:
+            print(f"网络错误: {e}", file=sys.stderr)
+        else:
+            print(f"更新失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Claude History 更新器 (macOS)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--check", action="store_true", help="静默检测是否有新版本")
+    group.add_argument("--update", action="store_true", help="执行更新")
+
+    args = parser.parse_args()
+
+    if args.check:
+        cmd_check()
+    elif args.update:
+        cmd_update()
+
+
+if __name__ == "__main__":
+    main()
