@@ -1,6 +1,14 @@
 #!/bin/bash
 # 设置可执行权限
-chmod +x /usr/local/claude-history/claude-history-server
+chmod +x /usr/local/claude-history/server/claude-history-server
 chmod +x /usr/local/bin/claude_history
 chmod +x /usr/local/claude-history/updater-mac
+
+# 移除 provenance/quarantine 扩展属性（避免 Gatekeeper 每次启动都扫描）
+xattr -cr /usr/local/claude-history/ 2>/dev/null || true
+
+# 对所有二进制文件做 ad-hoc 签名（消除 macOS 安全扫描延迟）
+find /usr/local/claude-history/server -type f \( -name "*.so" -o -name "*.dylib" \) -exec codesign -s - --force {} \; 2>/dev/null || true
+codesign -s - --force /usr/local/claude-history/server/claude-history-server 2>/dev/null || true
+
 exit 0

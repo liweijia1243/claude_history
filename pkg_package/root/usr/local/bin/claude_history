@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude History Viewer 启动脚本 (macOS)
 
-SERVER="/usr/local/claude-history/claude-history-server"
+SERVER="/usr/local/claude-history/server/claude-history-server"
 UPDATER="/usr/local/claude-history/updater-mac"
 PORT=8787
 SHARED=false

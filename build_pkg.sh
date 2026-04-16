@@ -22,7 +22,7 @@ cd "$SCRIPT_DIR"
 # Step 2: PyInstaller 打包 (arm64)
 echo "[2/4] PyInstaller 打包后端 (arm64)..."
 pip install pyinstaller --quiet
-pyinstaller --onefile \
+pyinstaller --onedir \
     --target-arch arm64 \
     --add-data "web/dist:web/dist" \
     --name claude-history-server \
@@ -34,11 +34,11 @@ pyinstaller --onefile \
 echo "[3/4] 组装 .pkg 包..."
 
 # 创建安装目标目录结构
-mkdir -p "$PKG_ROOT/usr/local/claude-history"
+mkdir -p "$PKG_ROOT/usr/local/claude-history/server"
 mkdir -p "$PKG_ROOT/usr/local/bin"
 
-# 复制二进制
-cp dist/claude-history-server "$PKG_ROOT/usr/local/claude-history/"
+# 复制整个 onedir 目录（包含可执行文件和所有依赖）
+cp -r dist/claude-history-server/ "$PKG_ROOT/usr/local/claude-history/server/"
 
 # 复制更新器
 cp updater-mac "$PKG_ROOT/usr/local/claude-history/"
