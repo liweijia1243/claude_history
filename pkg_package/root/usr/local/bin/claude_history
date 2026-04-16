@@ -1,0 +1,136 @@
+#!/bin/bash
+# Claude History Viewer 启动脚本 (macOS)
+
+SERVER="/usr/local/claude-history/claude-history-server"
+UPDATER="/usr/local/claude-history/updater-mac"
+PORT=8787
+SHARED=false
+
+VERSION_FILE="/usr/local/claude-history/VERSION"
+
+# --update 单独处理（需要 sudo）
+if [ "$1" = "--update" ]; then
+    if [ ! -f "$UPDATER" ]; then
+        echo "错误: 未找到更新器 $UPDATER" >&2
+        exit 1
+    fi
+    exec sudo "$UPDATER" --update
+fi
+
+# --version 单独处理
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    if [ -f "$VERSION_FILE" ]; then
+        VERSION=$(cat "$VERSION_FILE")
+        echo "Claude History Viewer v$VERSION"
+    else
+        echo "Claude History Viewer (版本未知)"
+    fi
+    exit 0
+fi
+
+# 解析参数
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --port)
+            if [ -z "$2" ] || ! [[ "$2" =~ ^[0-9]+$ ]] || [ "$2" -lt 1 ] || [ "$2" -gt 65535 ]; then
+                echo "错误: --port 需要一个 1-65535 之间的端口号" >&2
+                exit 1
+            fi
+            PORT="$2"
+            shift 2
+            ;;
+        --shared)
+            SHARED=true
+            shift
+            ;;
+        --help|-h)
+            echo "Claude History Viewer - Claude Code 会话记录可视化查看器"
+            echo ""
+            echo "用法: claude_history [选项]"
+            echo ""
+            echo "选项:"
+            echo "  --port <端口>  指定服务端口 (默认: 8787)"
+            echo "  --shared       允许局域网内其他设备访问 (默认仅本机可访问)"
+            echo "  --update       检查并安装最新版本"
+            echo "  --version, -v  显示版本信息"
+            echo "  --help, -h     显示此帮助信息"
+            echo ""
+            echo "示例:"
+            echo "  claude_history              # 本机 8787 端口启动"
+            echo "  claude_history --port 9000  # 指定端口启动"
+            echo "  claude_history --shared     # 允许局域网访问"
+            echo "  claude_history --update     # 更新到最新版本"
+            echo ""
+            echo "启动后自动在浏览器中打开，按 Ctrl+C 停止服务"
+            exit 0
+            ;;
+        *)
+            echo "未知选项: $1" >&2
+            echo "使用 --help 查看帮助" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# 检查二进制是否存在
+if [ ! -f "$SERVER" ]; then
+    echo "错误: 未找到 $SERVER" >&2
+    echo "请重新安装 claude-history" >&2
+    exit 1
+fi
+
+# 后台静默检测更新（不等待，不阻塞）
+if [ -f "$UPDATER" ]; then
+    ("$UPDATER" --check 2>/dev/null | while read -r line; do
+        if [[ "$line" == UPDATE_AVAILABLE:* ]]; then
+            new_ver="${line#UPDATE_AVAILABLE:}"
+            echo ""
+            echo "  有新版本 $new_ver 可用，运行 claude_history --update 进行更新"
+            echo ""
+        fi
+    done) &
+fi
+
+# 检查端口是否被占用（macOS: 使用 lsof）
+if lsof -i :"$PORT" -t >/dev/null 2>&1; then
+    echo "错误: 端口 $PORT 已被占用" >&2
+    echo "请先关闭占用该端口的程序" >&2
+    exit 1
+fi
+
+# 清理函数
+cleanup() {
+    echo ""
+    echo "正在停止 Claude History Viewer..."
+    kill "$SERVER_PID" 2>/dev/null
+    wait "$SERVER_PID" 2>/dev/null
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# 启动后端
+if [ "$SHARED" = true ]; then
+    "$SERVER" --port "$PORT" --no-open --shared &
+    ACCESS="http://$(ipconfig getifaddr en0 2>/dev/null || echo "localhost"):${PORT} 或 http://localhost:${PORT}"
+else
+    "$SERVER" --port "$PORT" --no-open &
+    ACCESS="http://localhost:${PORT}"
+fi
+SERVER_PID=$!
+
+# 等待端口就绪
+echo "正在启动 Claude History Viewer..."
+for i in $(seq 1 30); do
+    if curl -s -o /dev/null "http://localhost:${PORT}/api/stats" 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+# 打开浏览器（macOS: 使用 open）
+echo "正在打开浏览器: $ACCESS"
+open "http://localhost:${PORT}" 2>/dev/null &
+
+echo "Claude History Viewer 运行中: $ACCESS"
+echo "按 Ctrl+C 停止"
+wait "$SERVER_PID"
