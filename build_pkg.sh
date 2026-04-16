@@ -6,7 +6,7 @@ cd "$SCRIPT_DIR"
 
 VERSION="0.1.1"
 PKG_NAME="claude-history_${VERSION}_arm64.pkg"
-PKG_ROOT="pkg_package/root"
+PKG_ROOT="build_pkg_root"
 
 echo "=== Claude History Viewer .pkg 构建 ==="
 echo "版本: $VERSION"
@@ -47,7 +47,7 @@ chmod +x "$PKG_ROOT/usr/local/claude-history/updater-mac"
 # 生成版本文件
 echo "$VERSION" > "$PKG_ROOT/usr/local/claude-history/VERSION"
 
-# 复制 wrapper 脚本
+# 复制 wrapper 脚本（从模板）
 cp pkg_package/root/usr/local/bin/claude_history "$PKG_ROOT/usr/local/bin/"
 
 # Step 4: 打包
@@ -59,8 +59,8 @@ pkgbuild --root "$PKG_ROOT" \
     --install-location "/" \
     "$PKG_NAME"
 
-# 清理构建临时文件（保留 pkg_package 模板）
-rm -rf "$PKG_ROOT/usr"
+# 清理构建临时目录
+rm -rf "$PKG_ROOT"
 
 echo ""
 echo "=== 构建完成 ==="
