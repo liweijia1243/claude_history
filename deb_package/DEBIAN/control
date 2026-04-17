@@ -1,5 +1,5 @@
 Package: claude-history
-Version: 0.1.1
+Version: 0.1.2
 Architecture: amd64
 Maintainer: liweijia1243 <liweijia1243@users.noreply.github.com>
 Depends: libgtk-3-0, libnotify4, libnss3, libxss1, xdg-utils
