@@ -37,11 +37,31 @@ function resultPreview(result, maxLen = 800) {
   return c
 }
 
+function commandText(input = {}) {
+  const command = input.command || input.cmd || input.shell_command
+  return Array.isArray(command) ? command.join(' ') : command || ''
+}
+
+function resultExitLabel(result) {
+  if (!result?.metadata || result.metadata.exit_code === undefined || result.metadata.exit_code === null) return ''
+  return `exit ${result.metadata.exit_code}`
+}
+
 const toolConfig = {
   Bash: {
     color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
     label: (inp) => `$ ${inp.command || ''}`
+  },
+  exec_command: {
+    color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
+    label: (inp) => `$ ${commandText(inp)}`
+  },
+  apply_patch: {
+    color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
+    label: (inp) => inp.file || inp.path || 'patch'
   },
   Read: {
     color: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
@@ -73,10 +93,25 @@ const toolConfig = {
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`,
     label: (inp) => inp.description || inp.subagent_type || ''
   },
+  spawn_agent: {
+    color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`,
+    label: (inp) => inp.agent_type || inp.message?.substring?.(0, 50) || inp.task || ''
+  },
   TaskOutput: {
     color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
     label: (inp) => inp.task_id?.substring(0, 12) || ''
+  },
+  wait_agent: {
+    color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+    label: (inp) => Array.isArray(inp.targets) ? inp.targets.join(', ') : inp.target || inp.agent_id || ''
+  },
+  close_agent: {
+    color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+    label: (inp) => inp.target || inp.agent_id || ''
   },
   AskUserQuestion: {
     color: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
@@ -183,9 +218,17 @@ function formatLabel(tool) {
 
           <!-- Tool Result -->
           <div v-if="toolResultFor(tool.id)" class="rounded-xl overflow-hidden border border-[var(--border-color)]">
-            <!-- Bash result with terminal style -->
-            <div v-if="tool.name === 'Bash'" class="terminal-output">
-              <div class="text-xs text-emerald-400/60 mb-1">$ {{ tool.input?.command }}</div>
+            <!-- Shell result with terminal style -->
+            <div v-if="tool.name === 'Bash' || tool.name === 'exec_command'" class="terminal-output">
+              <div class="text-xs text-emerald-400/60 mb-1 flex items-center gap-2">
+                <span>$ {{ tool.name === 'exec_command' ? commandText(tool.input) : tool.input?.command }}</span>
+                <span v-if="resultExitLabel(toolResultFor(tool.id))" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10">
+                  {{ resultExitLabel(toolResultFor(tool.id)) }}
+                </span>
+              </div>
+              <div v-if="tool.input?.cwd || toolResultFor(tool.id)?.metadata?.cwd" class="text-xs text-[var(--text-secondary)] mb-1">
+                {{ tool.input?.cwd || toolResultFor(tool.id)?.metadata?.cwd }}
+              </div>
               <pre class="whitespace-pre-wrap break-words max-h-80 overflow-auto">{{ resultPreview(toolResultFor(tool.id), 5000) }}</pre>
             </div>
             <!-- Read result - show as code block -->
