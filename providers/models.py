@@ -1,18 +1,18 @@
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 
 
 def make_message(
     role: str,
     content: str = "",
     thinking: str = "",
-    tool_uses: list[dict[str, Any]] | None = None,
-    tool_results: list[dict[str, Any]] | None = None,
+    tool_uses: Optional[List[Dict[str, Any]]] = None,
+    tool_results: Optional[List[Dict[str, Any]]] = None,
     model: str = "",
-    usage: dict[str, Any] | None = None,
-    timestamp: str | int | float = "",
+    usage: Optional[Dict[str, Any]] = None,
+    timestamp: Union[str, int, float] = "",
     uuid: str = "",
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     return {
         "role": role,
         "content": content,
@@ -30,9 +30,9 @@ def make_message(
 def make_tool_use(
     tool_id: str,
     name: str,
-    input_data: dict[str, Any] | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    input_data: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     return {
         "id": tool_id,
         "name": name,
@@ -45,8 +45,8 @@ def make_tool_result(
     tool_use_id: str,
     content: str = "",
     is_error: bool = False,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     return {
         "tool_use_id": tool_use_id,
         "content": content,
