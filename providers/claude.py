@@ -12,11 +12,11 @@ from .base import HistoryProvider
 class ClaudeProvider(HistoryProvider):
     id = "claude"
     name = "Claude"
-    _CACHE_TTL = 300
 
     def __init__(self, root: Optional[Path] = None):
         self.root = root or Path(os.path.expanduser("~/.claude"))
         self._dashboard_cache = {}  # type: Dict[str, Dict[str, Any]]
+        self._cache_ttl = 300
 
     def available(self) -> bool:
         return self.root.exists()
@@ -291,7 +291,7 @@ class ClaudeProvider(HistoryProvider):
     def _get_cached_dashboard_stats(self, range_str: str) -> Optional[Dict[str, Any]]:
         """Return cached stats if fresh, else None."""
         entry = self._dashboard_cache.get(range_str)
-        if entry and (_time.time() - entry["ts"]) < self._CACHE_TTL:
+        if entry and (_time.time() - entry["ts"]) < self._cache_ttl:
             return entry["data"]
         return None
 
