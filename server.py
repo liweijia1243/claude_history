@@ -35,6 +35,13 @@ def provider_or_404(source: str):
     return provider
 
 
+def legacy_claude_provider_or_404():
+    provider = get_provider("claude")
+    if provider is None:
+        raise HTTPException(404, "Source not found/unavailable")
+    return provider
+
+
 def _not_found_as_http404(callback):
     try:
         return callback()
@@ -52,19 +59,19 @@ def get_sources():
 @app.get("/api/stats")
 def get_stats():
     """Get overview statistics."""
-    return provider_or_404("claude").get_stats()
+    return legacy_claude_provider_or_404().get_stats()
 
 
 @app.get("/api/dashboard-stats")
 def get_dashboard_stats(range: str = Query("30d", pattern="^(7d|30d|all)$")):
     """Get comprehensive dashboard statistics."""
-    return provider_or_404("claude").get_dashboard_stats(range)
+    return legacy_claude_provider_or_404().get_dashboard_stats(range)
 
 
 @app.get("/api/recent-sessions")
 def get_recent_sessions(limit: int = Query(5, ge=1, le=20)):
     """Get most recent sessions across all projects."""
-    return provider_or_404("claude").get_recent_sessions(limit)
+    return legacy_claude_provider_or_404().get_recent_sessions(limit)
 
 
 @app.get("/api/history")
@@ -75,50 +82,50 @@ def get_history(
     project: Optional[str] = Query(None),
 ):
     """Get command history with pagination and filtering."""
-    return provider_or_404("claude").get_history(page, limit, search, project)
+    return legacy_claude_provider_or_404().get_history(page, limit, search, project)
 
 
 @app.get("/api/plans")
 def get_plans():
     """List all plans."""
-    return provider_or_404("claude").get_plans()
+    return legacy_claude_provider_or_404().get_plans()
 
 
 @app.get("/api/plans/{name}")
 def get_plan(name: str):
     """Get a specific plan's content."""
-    return _not_found_as_http404(lambda: provider_or_404("claude").get_plan(name))
+    return _not_found_as_http404(lambda: legacy_claude_provider_or_404().get_plan(name))
 
 
 @app.get("/api/projects")
 def get_projects():
     """List all projects."""
-    return provider_or_404("claude").list_projects()
+    return legacy_claude_provider_or_404().list_projects()
 
 
 @app.get("/api/projects/{project_id}")
 def get_project_detail(project_id: str):
     """Get project details with sessions sorted by modification time."""
-    return _not_found_as_http404(lambda: provider_or_404("claude").get_project(project_id))
+    return _not_found_as_http404(lambda: legacy_claude_provider_or_404().get_project(project_id))
 
 
 @app.get("/api/projects/{project_id}/sessions")
 def get_project_sessions(project_id: str):
     """List sessions for a project."""
-    return _not_found_as_http404(lambda: provider_or_404("claude").list_sessions(project_id))
+    return _not_found_as_http404(lambda: legacy_claude_provider_or_404().list_sessions(project_id))
 
 
 @app.get("/api/projects/{project_id}/sessions/{session_id}")
 def get_session_conversation(project_id: str, session_id: str):
     """Get a session's conversation as a reconstructed thread."""
-    return _not_found_as_http404(lambda: provider_or_404("claude").get_session(project_id, session_id))
+    return _not_found_as_http404(lambda: legacy_claude_provider_or_404().get_session(project_id, session_id))
 
 
 @app.get("/api/projects/{project_id}/sessions/{session_id}/subagents/{agent_file}")
 def get_subagent_conversation(project_id: str, session_id: str, agent_file: str):
     """Get a subagent's conversation."""
     return _not_found_as_http404(
-        lambda: provider_or_404("claude").get_subagent(project_id, session_id, agent_file)
+        lambda: legacy_claude_provider_or_404().get_subagent(project_id, session_id, agent_file)
     )
 
 
