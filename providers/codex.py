@@ -106,6 +106,52 @@ class CodexProvider(HistoryProvider):
         return thread.get("first_user_message") or thread.get("title") or ""
 
     @staticmethod
+    def _history_display_text(message: Any) -> str:
+        if not isinstance(message, str):
+            return ""
+
+        request_marker = "## My request for Codex:"
+        if request_marker in message:
+            text = message.split(request_marker, 1)[1]
+            for end_marker in (
+                "\nThe next image shows",
+                "\n<image",
+            ):
+                if end_marker in text:
+                    text = text.split(end_marker, 1)[0]
+            return text.strip()
+
+        stripped = message.lstrip()
+        synthetic_prefixes = (
+            "# Diff comments:",
+            "# Review findings:",
+            "# In app browser:",
+            "## Code review guidelines:",
+            "# Review guidelines:",
+        )
+        if stripped.startswith(synthetic_prefixes):
+            return ""
+        return message
+
+    @staticmethod
+    def _timestamp_ms(value: Any) -> int:
+        if value in (None, ""):
+            return 0
+        if isinstance(value, (int, float)):
+            return int(value if value > 100000000000 else value * 1000)
+        if isinstance(value, str):
+            try:
+                numeric = float(value)
+            except ValueError:
+                try:
+                    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    return 0
+                return int(parsed.timestamp() * 1000)
+            return int(numeric if numeric > 100000000000 else numeric * 1000)
+        return 0
+
+    @staticmethod
     def _thread_modified_seconds(thread: Dict[str, Any]) -> float:
         updated_at_ms = thread.get("updated_at_ms")
         if updated_at_ms is not None:
@@ -278,6 +324,48 @@ class CodexProvider(HistoryProvider):
         history_path = self.root / "history.jsonl"
         threads = {thread["id"]: thread for thread in self._read_threads()}
         items = []
+        seen = set()
+        history_texts = set()
+
+        def thread_matches_project(thread: Dict[str, Any]) -> bool:
+            if not project:
+                return True
+            cwd = thread.get("cwd", "")
+            return project in cwd or project == self._project_id(cwd)
+
+        def add_item(session_id: str, timestamp: Any, display: str, source_file: str = "") -> None:
+            thread = threads.get(session_id)
+            if not thread:
+                return
+            cwd = thread.get("cwd", "")
+            display = display or ""
+            if not display.strip():
+                return
+            timestamp_ms = self._timestamp_ms(timestamp)
+            text_key = (session_id, display)
+            if source_file == "rollout" and text_key in history_texts:
+                return
+            if search and search.lower() not in display.lower():
+                return
+            if not thread_matches_project(thread):
+                return
+
+            key = (session_id, display, timestamp_ms // 1000)
+            if key in seen:
+                return
+            seen.add(key)
+            items.append(
+                {
+                    "sessionId": session_id,
+                    "timestamp": timestamp_ms,
+                    "display": display,
+                    "project": cwd,
+                    "project_id": self._project_id(cwd) if cwd else "",
+                    "source": self.id,
+                }
+            )
+            if source_file == "history_jsonl":
+                history_texts.add(text_key)
 
         if history_path.exists():
             with history_path.open("r", encoding="utf-8") as f:
@@ -291,26 +379,24 @@ class CodexProvider(HistoryProvider):
                         continue
 
                     session_id = raw.get("session_id", "")
-                    thread = threads.get(session_id)
-                    if not thread:
-                        continue
-                    cwd = thread.get("cwd", "")
-                    display = raw.get("text", "")
-                    if search and search.lower() not in display.lower():
-                        continue
-                    if project and project not in cwd and project != self._project_id(cwd):
-                        continue
+                    add_item(session_id, raw.get("ts", 0), raw.get("text", ""), "history_jsonl")
 
-                    items.append(
-                        {
-                            "sessionId": session_id,
-                            "timestamp": raw.get("ts", 0),
-                            "display": display,
-                            "project": cwd,
-                            "project_id": self._project_id(cwd) if cwd else "",
-                            "source": self.id,
-                        }
-                    )
+        for thread in threads.values():
+            if not thread_matches_project(thread):
+                continue
+            rollout = Path(thread.get("rollout_path") or "")
+            if not rollout.exists():
+                continue
+            for event in self._read_jsonl(rollout):
+                payload = event.get("payload") or {}
+                if not isinstance(payload, dict) or payload.get("type") != "user_message":
+                    continue
+                add_item(
+                    thread.get("id", ""),
+                    event.get("timestamp") or payload.get("timestamp") or thread.get("created_at_ms"),
+                    self._history_display_text(payload.get("message", "")),
+                    "rollout",
+                )
 
         items.sort(key=lambda item: item.get("timestamp") or 0, reverse=True)
         total = len(items)

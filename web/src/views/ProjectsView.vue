@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiPath, routePath, sourceFromRoute } from '../utils/source'
+import { useLatestRequest } from '../composables/useLatestRequest'
 
 const router = useRouter()
 const route = useRoute()
@@ -9,7 +10,7 @@ const source = computed(() => sourceFromRoute(route))
 const projects = ref([])
 const loading = ref(true)
 const searchQuery = ref('')
-let projectsRequestId = 0
+const projectRequests = useLatestRequest()
 
 const filteredProjects = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -18,20 +19,21 @@ const filteredProjects = computed(() => {
 })
 
 async function fetchProjects() {
-  const requestId = ++projectsRequestId
-  const requestSource = source.value
+  const request = projectRequests.createRequest({ source: source.value })
+  const { source: requestSource } = request.snapshot
+  const isCurrent = () => request.isCurrent(snapshot => snapshot.source === source.value)
   loading.value = true
   try {
     const res = await fetch(apiPath(requestSource, '/projects'))
     if (!res.ok) return
     const data = await res.json()
-    if (requestId !== projectsRequestId || requestSource !== source.value) return
+    if (!isCurrent()) return
 
     projects.value = data
   } catch {
     // Keep the current project list visible if this source request fails.
   } finally {
-    if (requestId === projectsRequestId && requestSource === source.value) {
+    if (isCurrent()) {
       loading.value = false
     }
   }

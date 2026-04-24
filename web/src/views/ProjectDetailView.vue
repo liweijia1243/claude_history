@@ -3,6 +3,7 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import HistorySearch from '../components/HistorySearch.vue'
 import { apiPath, routePath, sourceFromRoute } from '../utils/source'
+import { useLatestRequest } from '../composables/useLatestRequest'
 
 const props = defineProps({
   projectId: String
@@ -15,16 +16,21 @@ const project = ref(null)
 const sessions = ref([])
 const loading = ref(true)
 const searchActive = ref(false)
-let projectRequestId = 0
+const projectRequests = useLatestRequest()
 
 async function fetchProject() {
-  const requestId = ++projectRequestId
-  const requestSource = source.value
-  const requestProjectId = props.projectId
+  const request = projectRequests.createRequest({
+    source: source.value,
+    projectId: props.projectId,
+  })
+  const { source: requestSource, projectId: requestProjectId } = request.snapshot
+  const isCurrent = () => request.isCurrent(
+    snapshot => snapshot.source === source.value && snapshot.projectId === props.projectId
+  )
   loading.value = true
   try {
     const res = await fetch(apiPath(requestSource, `/projects/${requestProjectId}`))
-    if (requestId !== projectRequestId || requestSource !== source.value || requestProjectId !== props.projectId) return
+    if (!isCurrent()) return
 
     if (!res.ok) {
       router.push(routePath(requestSource, '/projects'))
@@ -32,16 +38,16 @@ async function fetchProject() {
     }
 
     const data = await res.json()
-    if (requestId !== projectRequestId || requestSource !== source.value || requestProjectId !== props.projectId) return
+    if (!isCurrent()) return
 
     project.value = data
     sessions.value = data.sessions
   } catch {
-    if (requestId === projectRequestId && requestSource === source.value && requestProjectId === props.projectId) {
+    if (isCurrent()) {
       router.push(routePath(requestSource, '/projects'))
     }
   } finally {
-    if (requestId === projectRequestId && requestSource === source.value && requestProjectId === props.projectId) {
+    if (isCurrent()) {
       loading.value = false
     }
   }

@@ -10,6 +10,7 @@ import TokenUsageChart from '../components/dashboard/TokenUsageChart.vue'
 import SessionDurationChart from '../components/dashboard/SessionDurationChart.vue'
 import RecentSessions from '../components/dashboard/RecentSessions.vue'
 import { apiPath, routePath, sourceFromRoute } from '../utils/source'
+import { useLatestRequest } from '../composables/useLatestRequest'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,12 +19,17 @@ const dashboardStats = ref(null)
 const recentSessions = ref([])
 const loading = ref(true)
 const range = ref('30d')
-let dashboardRequestId = 0
+const dashboardRequests = useLatestRequest()
 
 async function loadDashboard() {
-  const requestId = ++dashboardRequestId
-  const requestSource = source.value
-  const requestRange = range.value
+  const request = dashboardRequests.createRequest({
+    source: source.value,
+    range: range.value,
+  })
+  const { source: requestSource, range: requestRange } = request.snapshot
+  const isCurrent = () => request.isCurrent(
+    snapshot => snapshot.source === source.value && snapshot.range === range.value
+  )
   loading.value = true
 
   try {
@@ -34,14 +40,14 @@ async function loadDashboard() {
     if (!statsRes.ok || !recentRes.ok) return
 
     const [stats, sessions] = await Promise.all([statsRes.json(), recentRes.json()])
-    if (requestId !== dashboardRequestId || requestSource !== source.value) return
+    if (!isCurrent()) return
 
     dashboardStats.value = stats
     recentSessions.value = sessions
   } catch {
     // Keep the current dashboard visible if this source request fails.
   } finally {
-    if (requestId === dashboardRequestId && requestSource === source.value) {
+    if (isCurrent()) {
       loading.value = false
     }
   }

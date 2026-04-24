@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from providers.codex import CodexProvider
 from providers.models import make_message, make_tool_result, make_tool_use
@@ -280,6 +281,199 @@ class CodexProviderIndexTests(unittest.TestCase):
 
             self.assertEqual(missing["total"], 0)
             self.assertEqual(missing["items"], [])
+
+    def test_history_includes_app_user_messages_from_rollout_when_history_jsonl_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(
+                conn,
+                root,
+                "thread-app",
+                "/repo/app",
+                "App title",
+                "search app command",
+                1777000000000,
+                1777000003000,
+            )
+            conn.execute("UPDATE threads SET source = ? WHERE id = ?", ("vscode", "thread-app"))
+            conn.commit()
+            conn.close()
+            rollout.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "timestamp": "2026-04-24T10:00:00.000Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "user_message",
+                                    "message": "search app command",
+                                    "images": [],
+                                    "local_images": [],
+                                    "text_elements": [],
+                                },
+                            }
+                        )
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            history = provider.get_history(page=1, limit=50, search="app command", project="/repo/app")
+
+            self.assertEqual(history["total"], 1)
+            item = history["items"][0]
+            self.assertEqual(item["sessionId"], "thread-app")
+            self.assertEqual(item["display"], "search app command")
+            self.assertEqual(item["project"], "/repo/app")
+            self.assertEqual(item["project_id"], project_id)
+            self.assertEqual(item["source"], "codex")
+            self.assertEqual(item["timestamp"], 1777024800000)
+
+    def test_history_extracts_actual_request_from_codex_desktop_context_wrappers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(
+                conn,
+                root,
+                "thread-context",
+                "/repo/app",
+                "Context title",
+                "fix command search",
+                1777000000000,
+                1777000003000,
+            )
+            conn.execute("UPDATE threads SET source = ? WHERE id = ?", ("vscode", "thread-context"))
+            conn.commit()
+            conn.close()
+            rollout.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "timestamp": "2026-04-24T10:00:00.000Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "user_message",
+                                    "message": "\n# Review findings:\n\n## Finding 1\nnot user text\n\n## My request for Codex:\n请修复这个问题\n",
+                                    "images": [],
+                                    "local_images": [],
+                                    "text_elements": [],
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "timestamp": "2026-04-24T10:01:00.000Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "user_message",
+                                    "message": "\n# Diff comments:\ncontext\n\n## My request for Codex:\nproject中的command搜索同理。请帮我修复额外引入的非用户command\nThe next image shows the browser page.",
+                                    "images": ["data:image/png;base64,abc"],
+                                    "local_images": [],
+                                    "text_elements": [],
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "timestamp": "2026-04-24T10:02:00.000Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "user_message",
+                                    "message": "## Code review guidelines:\n# Review guidelines:\nYou are acting as a reviewer.",
+                                    "images": [],
+                                    "local_images": [],
+                                    "text_elements": [],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            provider = CodexProvider(root=root)
+            history = provider.get_history(page=1, limit=50, search=None, project="/repo/app")
+
+            self.assertEqual(
+                [item["display"] for item in history["items"]],
+                [
+                    "project中的command搜索同理。请帮我修复额外引入的非用户command",
+                    "请修复这个问题",
+                ],
+            )
+            self.assertNotIn("Review findings", json.dumps(history, ensure_ascii=False))
+            self.assertNotIn("Code review guidelines", json.dumps(history, ensure_ascii=False))
+
+    def test_project_history_does_not_read_unrelated_project_rollouts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            alpha_rollout = insert_thread(
+                conn,
+                root,
+                "thread-alpha",
+                "/repo/alpha",
+                "Alpha title",
+                "alpha command",
+                1777000000000,
+                1777000003000,
+            )
+            beta_rollout = insert_thread(
+                conn,
+                root,
+                "thread-beta",
+                "/repo/beta",
+                "Beta title",
+                "beta command",
+                1777000001000,
+                1777000004000,
+            )
+            conn.close()
+            alpha_rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-04-24T10:00:00.000Z",
+                        "type": "event_msg",
+                        "payload": {"type": "user_message", "message": "alpha command"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            beta_rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-04-24T10:00:01.000Z",
+                        "type": "event_msg",
+                        "payload": {"type": "user_message", "message": "beta command"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            provider = CodexProvider(root=root)
+            read_paths = []
+            original_read_jsonl = CodexProvider._read_jsonl
+
+            def record_read(path):
+                read_paths.append(path)
+                return original_read_jsonl(path)
+
+            with patch.object(CodexProvider, "_read_jsonl", side_effect=record_read):
+                history = provider.get_history(page=1, limit=50, search=None, project="/repo/alpha")
+
+            self.assertEqual([item["display"] for item in history["items"]], ["alpha command"])
+            self.assertIn(alpha_rollout, read_paths)
+            self.assertNotIn(beta_rollout, read_paths)
 
 
 class CodexProviderConversationTests(unittest.TestCase):

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import HistoryProvider
+from .models import make_message, make_tool_result, make_tool_use
 
 
 class ClaudeProvider(HistoryProvider):
@@ -177,11 +178,11 @@ class ClaudeProvider(HistoryProvider):
                             for c in content:
                                 if isinstance(c, dict) and c.get("type") == "tool_result":
                                     tool_results.append(
-                                        {
-                                            "tool_use_id": c.get("tool_use_id", ""),
-                                            "content": c.get("content", ""),
-                                            "is_error": c.get("is_error", False),
-                                        }
+                                        make_tool_result(
+                                            c.get("tool_use_id", ""),
+                                            c.get("content", ""),
+                                            c.get("is_error", False),
+                                        )
                                     )
                             assistant_buffer["tool_results"] = tool_results
 
@@ -218,12 +219,12 @@ class ClaudeProvider(HistoryProvider):
                     text = "\n".join(parts)
 
                 conversation.append(
-                    {
-                        "role": "user",
-                        "content": text,
-                        "timestamp": msg.get("timestamp", ""),
-                        "uuid": msg.get("uuid", ""),
-                    }
+                    make_message(
+                        role="user",
+                        content=text,
+                        timestamp=msg.get("timestamp", ""),
+                        uuid=msg.get("uuid", ""),
+                    )
                 )
 
             elif msg_type == "assistant":
@@ -246,11 +247,11 @@ class ClaudeProvider(HistoryProvider):
                     elif block_type == "thinking":
                         thinking_parts.append(block.get("thinking", ""))
                     elif block_type == "tool_use":
-                        tool_use = {
-                            "id": block.get("id", ""),
-                            "name": block.get("name", ""),
-                            "input": block.get("input", {}),
-                        }
+                        tool_use = make_tool_use(
+                            block.get("id", ""),
+                            block.get("name", ""),
+                            block.get("input", {}),
+                        )
                         if "startLine" in block:
                             tool_use["startLine"] = block["startLine"]
                         tool_uses.append(tool_use)
@@ -258,17 +259,17 @@ class ClaudeProvider(HistoryProvider):
                 model = message_data.get("model", "")
                 usage = message_data.get("usage", {})
 
-                assistant_buffer = {
-                    "role": "assistant",
-                    "content": "\n".join(text_parts),
-                    "thinking": "\n".join(thinking_parts),
-                    "tool_uses": tool_uses,
-                    "tool_results": [],
-                    "model": model,
-                    "usage": usage,
-                    "timestamp": msg.get("timestamp", ""),
-                    "uuid": msg.get("uuid", ""),
-                }
+                assistant_buffer = make_message(
+                    role="assistant",
+                    content="\n".join(text_parts),
+                    thinking="\n".join(thinking_parts),
+                    tool_uses=tool_uses,
+                    tool_results=[],
+                    model=model,
+                    usage=usage,
+                    timestamp=msg.get("timestamp", ""),
+                    uuid=msg.get("uuid", ""),
+                )
 
         if assistant_buffer is not None:
             conversation.append(assistant_buffer)

@@ -2,6 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DEFAULT_SOURCE, apiPath, routePath } from '../utils/source'
+import { useLatestRequest } from '../composables/useLatestRequest'
 
 const props = defineProps({
   source: { type: String, default: DEFAULT_SOURCE },
@@ -23,7 +24,7 @@ const searchTimeout = ref(null)
 const blurTimeout = ref(null)
 const active = ref(props.initiallyActive)
 const hasLoaded = ref(false)
-let historyRequestId = 0
+const historyRequests = useLatestRequest()
 
 const route = useRoute()
 const router = useRouter()
@@ -38,9 +39,14 @@ const expandedItems = ref(new Set())
 const clickTimer = ref(null)
 
 async function fetchHistory() {
-  const requestId = ++historyRequestId
-  const requestSource = props.source
-  const requestProjectPath = props.projectPath
+  const request = historyRequests.createRequest({
+    source: props.source,
+    projectPath: props.projectPath,
+  })
+  const { source: requestSource, projectPath: requestProjectPath } = request.snapshot
+  const isCurrent = () => request.isCurrent(
+    snapshot => snapshot.source === props.source && snapshot.projectPath === props.projectPath
+  )
   loading.value = true
   const params = new URLSearchParams({
     page: page.value,
@@ -52,7 +58,7 @@ async function fetchHistory() {
     const res = await fetch(`${apiPath(requestSource, '/history')}?${params}`)
     if (!res.ok) return
     const data = await res.json()
-    if (requestId !== historyRequestId || requestSource !== props.source || requestProjectPath !== props.projectPath) return
+    if (!isCurrent()) return
 
     items.value = data.items
     total.value = data.total
@@ -61,7 +67,7 @@ async function fetchHistory() {
   } catch {
     // Keep existing results visible if a newer search/source change is in flight.
   } finally {
-    if (requestId === historyRequestId && requestSource === props.source && requestProjectPath === props.projectPath) {
+    if (isCurrent()) {
       loading.value = false
     }
   }
@@ -142,7 +148,7 @@ function navigateToConversation(item) {
 
 function resetHistoryScope() {
   const shouldRefetch = active.value || hasLoaded.value
-  historyRequestId++
+  historyRequests.cancelRequests()
   loading.value = false
   hasLoaded.value = false
   expandedItems.value = new Set()
