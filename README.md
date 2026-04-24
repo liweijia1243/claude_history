@@ -6,7 +6,7 @@
 
 **[Claude Code](https://claude.ai/code) 与 Codex 会话记录可视化查看器**
 
-读取本机 `~/.claude/` 与 `~/.codex/` 下的数据，通过美观的 Web 界面展示 Claude Code 和 Codex 的对话历史、实施计划、项目会话等内容。
+读取本机 `~/.claude/` 与 `~/.codex/` 下的数据，通过美观的 Web 界面展示 Claude Code 和 Codex 的对话历史、项目会话与完整对话，并支持查看 Claude Code 实施计划。
 
 [![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
@@ -42,7 +42,7 @@
 |------|------|
 | **Dashboard** | 统计概览 — 命令数、计划数、项目数、24h 活跃度热力图 |
 | **History** | 可搜索的命令历史，支持按项目筛选，点击直达对应会话 |
-| **Plans** | Markdown 计划文件渲染查看，支持多计划浏览 |
+| **Plans** | Claude Code Markdown 计划文件渲染查看，支持多计划浏览 |
 | **Projects** | 按项目浏览所有会话，自动映射项目目录名到实际路径 |
 | **Conversation** | 聊天气泡 UI — 可折叠思维块、可展开工具调用面板、子代理弹窗、代码 Diff 视图 |
 
@@ -182,6 +182,7 @@ web/               # Vue 3 + Tailwind CSS 前端
 | Claude | `~/.claude/history.jsonl` | 用户命令历史 |
 | Claude | `~/.claude/plans/*.md` | 实施计划 |
 | Claude | `~/.claude/projects/<dir>/*.jsonl` | 项目会话 |
+| Claude | `~/.claude/projects/<dir>/<session>/subagents/` | 子代理对话 |
 | Codex | `~/.codex/state_5.sqlite` | thread 索引、cwd、模型、rollout 路径 |
 | Codex | `~/.codex/sessions/**/rollout-*.jsonl` | 完整会话事件流 |
 | Codex | `~/.codex/history.jsonl` | 用户命令历史 |

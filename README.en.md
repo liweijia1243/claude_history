@@ -6,7 +6,7 @@
 
 **A visual history viewer for [Claude Code](https://claude.ai/code) and Codex sessions**
 
-Reads data from the local `~/.claude/` and `~/.codex/` directories and presents Claude Code and Codex conversation history, implementation plans, and project sessions through a beautiful web interface.
+Reads data from the local `~/.claude/` and `~/.codex/` directories and presents Claude Code and Codex conversation history, project sessions, and full conversations through a beautiful web interface, with Claude Code implementation plan viewing.
 
 [![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
@@ -42,7 +42,7 @@ Reads data from the local `~/.claude/` and `~/.codex/` directories and presents 
 |---------|-------------|
 | **Dashboard** | Overview — command count, plan count, project count, 24h activity heatmap |
 | **History** | Searchable command history with project filtering, click to jump to the corresponding session |
-| **Plans** | Markdown plan file rendering with multi-plan browsing |
+| **Plans** | Claude Code Markdown plan file rendering with multi-plan browsing |
 | **Projects** | Browse all sessions by project, automatically maps directory names to actual paths |
 | **Conversation** | Chat bubble UI — collapsible thinking blocks, expandable tool call panels, sub-agent dialogs, code diff view |
 
@@ -182,6 +182,7 @@ web/               # Vue 3 + Tailwind CSS frontend
 | Claude | `~/.claude/history.jsonl` | User command history |
 | Claude | `~/.claude/plans/*.md` | Implementation plans |
 | Claude | `~/.claude/projects/<dir>/*.jsonl` | Project sessions |
+| Claude | `~/.claude/projects/<dir>/<session>/subagents/` | Sub-agent conversations |
 | Codex | `~/.codex/state_5.sqlite` | Thread index, cwd, model, rollout path |
 | Codex | `~/.codex/sessions/**/rollout-*.jsonl` | Full session event stream |
 | Codex | `~/.codex/history.jsonl` | User command history |
