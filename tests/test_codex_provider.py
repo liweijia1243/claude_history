@@ -420,6 +420,70 @@ class CodexProviderConversationTests(unittest.TestCase):
             self.assertEqual(session["metadata"]["timezone"], "Asia/Shanghai")
             self.assertEqual(session["metadata"]["last_token_count"], events[1]["payload"])
 
+    def test_duplicate_agent_message_is_suppressed_when_canonical_assistant_message_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "summarize", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "user_message",
+                        "message": "summarize",
+                        "images": [],
+                        "local_images": [],
+                        "text_elements": [],
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "agent_message",
+                        "phase": "final",
+                        "message": "The final answer appears once.",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "agent_message",
+                        "phase": "started",
+                        "message": "Preparing summary",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "The final answer appears once."}],
+                    },
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            contents = [message["content"] for message in session["conversation"]]
+            self.assertEqual(contents.count("The final answer appears once."), 1)
+            self.assertIn("Preparing summary", contents)
+            self.assertEqual(
+                [(message["role"], message["content"]) for message in session["conversation"]],
+                [
+                    ("user", "summarize"),
+                    ("event", "Preparing summary"),
+                    ("assistant", "The final answer appears once."),
+                ],
+            )
+
     def test_transcript_internal_and_user_messages_do_not_render_as_chat_bubbles(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -6,7 +6,7 @@ from collections import defaultdict
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, List, Optional, Tuple
+from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 
 from .base import HistoryProvider
 from .models import make_message, make_tool_result, make_tool_use
@@ -319,6 +319,10 @@ class CodexProvider(HistoryProvider):
         return "\n".join(parts)
 
     @staticmethod
+    def _normalized_text(text: str) -> str:
+        return text.strip()
+
+    @staticmethod
     def _parse_arguments(raw: Any) -> Dict[str, Any]:
         if not raw:
             return {}
@@ -375,6 +379,8 @@ class CodexProvider(HistoryProvider):
         conversation = []
         current_assistant = None  # type: Optional[Dict[str, Any]]
         tool_owner = {}  # type: Dict[str, Dict[str, Any]]
+        agent_message_ids = set()  # type: Set[int]
+        canonical_assistant_texts = set()  # type: Set[str]
         metadata = {
             "cwd": thread.get("cwd", ""),
             "title": thread.get("title", ""),
@@ -465,7 +471,11 @@ class CodexProvider(HistoryProvider):
             if payload_type == "message":
                 role = payload.get("role", "assistant")
                 if role == "assistant":
-                    append_assistant_text(ensure_assistant(timestamp), self._content_text(payload.get("content")))
+                    text = self._content_text(payload.get("content"))
+                    normalized_text = self._normalized_text(text)
+                    if normalized_text:
+                        canonical_assistant_texts.add(normalized_text)
+                    append_assistant_text(ensure_assistant(timestamp), text)
                 else:
                     counts = metadata["internal_message_counts"]
                     counts[role] = counts.get(role, 0) + 1
@@ -537,17 +547,24 @@ class CodexProvider(HistoryProvider):
                 flush_assistant()
                 phase = payload.get("phase", "")
                 role = "assistant" if phase in ("final", "message", "response") else "event"
-                conversation.append(
-                    make_message(
-                        role=role,
-                        content=payload.get("message", ""),
-                        timestamp=timestamp,
-                        metadata={"phase": phase, "source": self.id},
-                    )
+                agent_message = make_message(
+                    role=role,
+                    content=payload.get("message", ""),
+                    timestamp=timestamp,
+                    metadata={"phase": phase, "source": self.id},
                 )
+                agent_message_ids.add(id(agent_message))
+                conversation.append(agent_message)
                 continue
 
         flush_assistant()
+        if canonical_assistant_texts:
+            conversation = [
+                message
+                for message in conversation
+                if id(message) not in agent_message_ids
+                or self._normalized_text(message.get("content", "")) not in canonical_assistant_texts
+            ]
         return conversation, metadata
 
     def get_session(self, project_id: str, session_id: str) -> Dict[str, Any]:

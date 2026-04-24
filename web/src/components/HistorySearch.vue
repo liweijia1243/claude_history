@@ -140,6 +140,24 @@ function navigateToConversation(item) {
   })
 }
 
+function resetHistoryScope() {
+  const shouldRefetch = active.value || hasLoaded.value
+  historyRequestId++
+  loading.value = false
+  hasLoaded.value = false
+  expandedItems.value = new Set()
+  items.value = []
+  total.value = 0
+  pages.value = 0
+  if (!shouldRefetch) return
+
+  if (page.value !== 1) {
+    page.value = 1
+    return
+  }
+  fetchHistory()
+}
+
 function formatFullTime(ts) {
   if (!ts) return ''
   const d = new Date(ts)
@@ -200,18 +218,7 @@ onMounted(() => {
   }
 })
 watch(page, fetchHistory)
-watch(() => props.source, () => {
-  historyRequestId++
-  loading.value = false
-  expandedItems.value = new Set()
-  if (!active.value && !hasLoaded.value) return
-
-  if (page.value !== 1) {
-    page.value = 1
-    return
-  }
-  fetchHistory()
-})
+watch(() => [props.source, props.projectPath], resetHistoryScope)
 </script>
 
 <template>

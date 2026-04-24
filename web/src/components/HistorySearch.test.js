@@ -64,6 +64,23 @@ describe('HistorySearch', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/codex/history?page=1&limit=50')
   })
 
+  it('refetches with the new project filter when projectPath changes', async () => {
+    const wrapper = mount(HistorySearch, {
+      props: {
+        source: 'codex',
+        projectPath: '/repo/alpha',
+        syncUrl: false,
+        initiallyActive: true,
+      },
+    })
+    await flushPromises()
+
+    await wrapper.setProps({ projectPath: '/repo/beta' })
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenLastCalledWith('/api/codex/history?page=1&limit=50&project=%2Frepo%2Fbeta')
+  })
+
   it('syncs search query to the selected source route', async () => {
     const wrapper = mount(HistorySearch, {
       props: {
