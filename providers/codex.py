@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 
 from .base import HistoryProvider
+from .models import make_message, make_tool_result, make_tool_use
 
 
 class CodexProvider(HistoryProvider):
@@ -281,5 +282,297 @@ class CodexProvider(HistoryProvider):
     def list_sessions(self, project_id: str) -> List[Dict[str, Any]]:
         return self.get_project(project_id)["sessions"]
 
+    @staticmethod
+    def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
+        items = []
+        if not path.exists():
+            return items
+
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(raw, dict):
+                    items.append(raw)
+        return items
+
+    @staticmethod
+    def _content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return ""
+
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                text = block.get("text")
+                if text:
+                    parts.append(text)
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _parse_arguments(raw: Any) -> Dict[str, Any]:
+        if not raw:
+            return {}
+        if isinstance(raw, dict):
+            return raw
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return {"arguments": raw}
+        if isinstance(parsed, dict):
+            return parsed
+        return {"arguments": parsed}
+
+    @classmethod
+    def _reasoning_text(cls, payload: Dict[str, Any]) -> Tuple[str, bool]:
+        content = payload.get("content")
+        text = cls._content_text(content)
+        if text:
+            return text, False
+
+        summary = payload.get("summary")
+        if isinstance(summary, list):
+            parts = []
+            for item in summary:
+                if isinstance(item, dict) and item.get("text"):
+                    parts.append(item["text"])
+                elif isinstance(item, str):
+                    parts.append(item)
+            if parts:
+                return "\n".join(parts), False
+        elif isinstance(summary, str) and summary:
+            return summary, False
+
+        if payload.get("encrypted_content"):
+            return "[Encrypted reasoning available]", True
+        return "", False
+
+    @staticmethod
+    def _result_content(payload: Dict[str, Any]) -> str:
+        content = (
+            payload.get("formatted_output")
+            or payload.get("aggregated_output")
+            or payload.get("output")
+        )
+        if content:
+            return content
+        return "\n".join(part for part in [payload.get("stdout", ""), payload.get("stderr", "")] if part)
+
+    def _reconstruct_rollout(
+        self,
+        events: List[Dict[str, Any]],
+        thread: Dict[str, Any],
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        conversation = []
+        current_assistant = None  # type: Optional[Dict[str, Any]]
+        tool_owner = {}  # type: Dict[str, Dict[str, Any]]
+        metadata = {
+            "cwd": thread.get("cwd", ""),
+            "title": thread.get("title", ""),
+            "model": thread.get("model") or "",
+            "model_provider": thread.get("model_provider") or "",
+            "reasoning_effort": thread.get("reasoning_effort") or "",
+            "source": self.id,
+            "codex_source": thread.get("source") or "",
+        }
+
+        def ensure_assistant(timestamp: Any = "") -> Dict[str, Any]:
+            nonlocal current_assistant
+            if current_assistant is None:
+                current_assistant = make_message(
+                    role="assistant",
+                    model=thread.get("model") or "",
+                    timestamp=timestamp,
+                    metadata={"source": self.id},
+                )
+            return current_assistant
+
+        def flush_assistant() -> None:
+            nonlocal current_assistant
+            if current_assistant is not None:
+                conversation.append(current_assistant)
+                current_assistant = None
+
+        def append_assistant_text(assistant: Dict[str, Any], text: str) -> None:
+            if text:
+                assistant["content"] = "\n".join(part for part in [assistant.get("content", ""), text] if part)
+
+        for event in events:
+            timestamp = event.get("timestamp", "")
+            payload = event.get("payload") or {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload_type = payload.get("type")
+            event_type = event.get("type")
+
+            if event_type == "session_meta":
+                metadata.update(
+                    {
+                        "cwd": payload.get("cwd", metadata.get("cwd", "")),
+                        "codex_source": payload.get("source", ""),
+                        "model_provider": payload.get("model_provider", ""),
+                        "git": payload.get("git", {}),
+                        "dynamic_tools": payload.get("dynamic_tools", []),
+                    }
+                )
+                continue
+
+            if event_type == "turn_context" or payload_type == "turn_context":
+                metadata.update(
+                    {
+                        "approval_policy": payload.get("approval_policy", ""),
+                        "sandbox_policy": payload.get("sandbox_policy", {}),
+                        "current_date": payload.get("current_date", ""),
+                        "timezone": payload.get("timezone", ""),
+                    }
+                )
+                continue
+
+            if event_type == "token_count" or payload_type == "token_count":
+                metadata["last_token_count"] = payload
+                continue
+
+            if payload_type == "user_message":
+                flush_assistant()
+                conversation.append(
+                    make_message(
+                        role="user",
+                        content=payload.get("message", ""),
+                        timestamp=timestamp,
+                        metadata={
+                            "images": payload.get("images", []),
+                            "local_images": payload.get("local_images", []),
+                            "text_elements": payload.get("text_elements", []),
+                            "source": self.id,
+                        },
+                    )
+                )
+                continue
+
+            if payload_type == "message":
+                role = payload.get("role", "assistant")
+                content = self._content_text(payload.get("content"))
+                if role == "user":
+                    flush_assistant()
+                    conversation.append(
+                        make_message(
+                            role="user",
+                            content=content,
+                            timestamp=timestamp,
+                            metadata={"source": self.id},
+                        )
+                    )
+                else:
+                    append_assistant_text(ensure_assistant(timestamp), content)
+                continue
+
+            if payload_type == "reasoning":
+                assistant = ensure_assistant(timestamp)
+                text, encrypted = self._reasoning_text(payload)
+                if text:
+                    assistant["thinking"] = "\n".join(
+                        part for part in [assistant.get("thinking", ""), text] if part
+                    )
+                if encrypted:
+                    assistant["metadata"]["reasoning_encrypted"] = True
+                    metadata["reasoning_encrypted"] = True
+                continue
+
+            if payload_type == "function_call":
+                assistant = ensure_assistant(timestamp)
+                call_id = payload.get("call_id", "")
+                assistant["tool_uses"].append(
+                    make_tool_use(
+                        call_id,
+                        payload.get("name", ""),
+                        self._parse_arguments(payload.get("arguments", "")),
+                        {"provider": self.id},
+                    )
+                )
+                if call_id:
+                    tool_owner[call_id] = assistant
+                continue
+
+            if payload_type in ("function_call_output", "exec_command_end"):
+                call_id = payload.get("call_id", "")
+                owner = tool_owner.get(call_id) or ensure_assistant(timestamp)
+                if call_id and call_id not in tool_owner:
+                    owner["tool_uses"].append(
+                        make_tool_use(
+                            call_id,
+                            "exec_command" if payload_type == "exec_command_end" else "function_call_output",
+                            {
+                                "command": payload.get("command", []),
+                                "cwd": payload.get("cwd", ""),
+                            },
+                            {"provider": self.id, "synthetic": True},
+                        )
+                    )
+                    tool_owner[call_id] = owner
+                owner["tool_results"].append(
+                    make_tool_result(
+                        call_id,
+                        self._result_content(payload),
+                        bool(payload.get("exit_code")),
+                        {
+                            "exit_code": payload.get("exit_code"),
+                            "cwd": payload.get("cwd", ""),
+                            "command": payload.get("command", []),
+                            "stdout": payload.get("stdout", ""),
+                            "stderr": payload.get("stderr", ""),
+                            "duration": payload.get("duration"),
+                            "status": payload.get("status"),
+                            "parsed_cmd": payload.get("parsed_cmd", []),
+                        },
+                    )
+                )
+                continue
+
+            if payload_type == "agent_message":
+                flush_assistant()
+                phase = payload.get("phase", "")
+                role = "assistant" if phase in ("final", "message", "response") else "event"
+                conversation.append(
+                    make_message(
+                        role=role,
+                        content=payload.get("message", ""),
+                        timestamp=timestamp,
+                        metadata={"phase": phase, "source": self.id},
+                    )
+                )
+                continue
+
+        flush_assistant()
+        return conversation, metadata
+
     def get_session(self, project_id: str, session_id: str) -> Dict[str, Any]:
-        raise FileNotFoundError("Session not found")
+        cwd, threads = self._find_project_threads(project_id)
+        thread = next((item for item in threads if item.get("id") == session_id), None)
+        if not thread:
+            raise FileNotFoundError("Session not found")
+
+        rollout = Path(thread.get("rollout_path") or "")
+        if not rollout.exists():
+            raise FileNotFoundError("Session not found")
+
+        events = self._read_jsonl(rollout)
+        conversation, metadata = self._reconstruct_rollout(events, thread)
+        metadata["cwd"] = cwd
+        return {
+            "session_id": session_id,
+            "project_id": project_id,
+            "source": self.id,
+            "total_raw_messages": len(events),
+            "conversation": conversation,
+            "subagents": [],
+            "metadata": metadata,
+        }

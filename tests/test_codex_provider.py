@@ -244,5 +244,146 @@ class CodexProviderIndexTests(unittest.TestCase):
             self.assertEqual(missing["items"], [])
 
 
+class CodexProviderConversationTests(unittest.TestCase):
+    def test_reconstructs_messages_reasoning_tools_and_exec_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "run pwd", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "thread-a",
+                        "cwd": "/repo/alpha",
+                        "source": "cli",
+                        "model_provider": "openai",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "user_message",
+                        "message": "run pwd",
+                        "images": [],
+                        "local_images": [],
+                        "text_elements": [],
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "response_item",
+                    "payload": {"type": "reasoning", "summary": [{"text": "Need to inspect cwd"}], "content": None},
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call",
+                        "name": "exec_command",
+                        "arguments": "{\"cmd\":\"pwd\"}",
+                        "call_id": "call-1",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:04Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "exec_command_end",
+                        "call_id": "call-1",
+                        "command": ["pwd"],
+                        "cwd": "/repo/alpha",
+                        "stdout": "/repo/alpha\n",
+                        "stderr": "",
+                        "aggregated_output": "/repo/alpha\n",
+                        "formatted_output": "/repo/alpha\n",
+                        "exit_code": 0,
+                        "duration": {"secs": 0, "nanos": 1000},
+                        "status": "completed",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:05Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "The cwd is /repo/alpha."}],
+                    },
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            self.assertEqual(session["session_id"], "thread-a")
+            self.assertEqual(session["project_id"], project_id)
+            self.assertEqual(session["source"], "codex")
+            self.assertEqual(session["total_raw_messages"], len(events))
+            self.assertEqual(session["subagents"], [])
+            self.assertEqual(session["metadata"]["cwd"], "/repo/alpha")
+            self.assertEqual(session["metadata"]["codex_source"], "cli")
+            self.assertEqual(session["metadata"]["model_provider"], "openai")
+
+            self.assertEqual([m["role"] for m in session["conversation"]], ["user", "assistant"])
+            user = session["conversation"][0]
+            self.assertEqual(user["content"], "run pwd")
+            self.assertEqual(user["metadata"]["source"], "codex")
+
+            assistant = session["conversation"][1]
+            self.assertEqual(assistant["thinking"], "Need to inspect cwd")
+            self.assertEqual(assistant["content"], "The cwd is /repo/alpha.")
+            self.assertEqual(assistant["model"], "gpt-5.5")
+            self.assertEqual(assistant["timestamp"], "2026-04-24T10:00:02Z")
+            self.assertEqual(assistant["tool_uses"][0]["id"], "call-1")
+            self.assertEqual(assistant["tool_uses"][0]["name"], "exec_command")
+            self.assertEqual(assistant["tool_uses"][0]["input"], {"cmd": "pwd"})
+            self.assertEqual(assistant["tool_results"][0]["tool_use_id"], "call-1")
+            self.assertEqual(assistant["tool_results"][0]["content"], "/repo/alpha\n")
+            self.assertFalse(assistant["tool_results"][0]["is_error"])
+            result_metadata = assistant["tool_results"][0]["metadata"]
+            self.assertEqual(result_metadata["exit_code"], 0)
+            self.assertEqual(result_metadata["cwd"], "/repo/alpha")
+            self.assertEqual(result_metadata["command"], ["pwd"])
+            self.assertEqual(result_metadata["stdout"], "/repo/alpha\n")
+            self.assertEqual(result_metadata["stderr"], "")
+            self.assertEqual(result_metadata["duration"], {"secs": 0, "nanos": 1000})
+            self.assertEqual(result_metadata["status"], "completed")
+
+    def test_encrypted_reasoning_does_not_expose_ciphertext(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "hello", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "reasoning",
+                        "summary": [],
+                        "content": None,
+                        "encrypted_content": "secret-ciphertext",
+                    },
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            self.assertNotIn("secret-ciphertext", json.dumps(session))
+            self.assertEqual(session["conversation"][0]["thinking"], "[Encrypted reasoning available]")
+            self.assertTrue(session["conversation"][0]["metadata"]["reasoning_encrypted"])
+            self.assertTrue(session["metadata"]["reasoning_encrypted"])
+
+
 if __name__ == "__main__":
     unittest.main()
