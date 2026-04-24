@@ -536,15 +536,21 @@ class CodexProvider(HistoryProvider):
             return "", True
         return "", False
 
-    @staticmethod
-    def _result_content(payload: Dict[str, Any]) -> str:
+    @classmethod
+    def _result_content(cls, payload: Dict[str, Any]) -> str:
         content = (
             payload.get("formatted_output")
             or payload.get("aggregated_output")
             or payload.get("output")
         )
-        if content:
+        if isinstance(content, str):
             return content
+        if isinstance(content, list):
+            return cls._content_text(content)
+        if isinstance(content, dict):
+            return json.dumps(content, ensure_ascii=False)
+        if content:
+            return str(content)
         return "\n".join(part for part in [payload.get("stdout", ""), payload.get("stderr", "")] if part)
 
     def _reconstruct_rollout(

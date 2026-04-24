@@ -975,6 +975,46 @@ class CodexProviderConversationTests(unittest.TestCase):
             self.assertEqual(tool["input"], {"input": "*** Begin Patch\n*** End Patch\n"})
             self.assertEqual(session["conversation"][0]["tool_results"][0]["content"], "Done")
 
+    def test_function_call_output_content_blocks_are_reconstructed_as_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "inspect browser", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call",
+                        "name": "get_app_state",
+                        "arguments": "{\"app\":\"Chrome\"}",
+                        "call_id": "call-1",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call_output",
+                        "call_id": "call-1",
+                        "output": [
+                            {"type": "input_text", "text": "Wall time: 98.3796 seconds\nOutput:"},
+                            {"type": "input_text", "text": "Computer Use state"},
+                        ],
+                    },
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            result = session["conversation"][0]["tool_results"][0]
+            self.assertEqual(result["tool_use_id"], "call-1")
+            self.assertEqual(result["content"], "Wall time: 98.3796 seconds\nOutput:\nComputer Use state")
+
 
 if __name__ == "__main__":
     unittest.main()
