@@ -51,6 +51,7 @@ function toggleSidebar() {
 async function fetchSources() {
   try {
     const res = await fetch('/api/sources')
+    if (!res.ok) return
     sources.value = await res.json()
   } catch {
     sources.value = [...fallbackSources]

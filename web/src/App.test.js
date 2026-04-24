@@ -72,8 +72,25 @@ describe('App source switcher', () => {
     ])
   })
 
+  it('keeps fallback source options when fetching sources returns a non-OK response', async () => {
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: false,
+      json: () => Promise.resolve({ detail: 'unavailable' }),
+    }))
+
+    const wrapper = mountApp()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledWith('/api/sources')
+    expect(wrapper.findAll('option').map(option => option.attributes('value'))).toEqual([
+      'claude',
+      'codex',
+    ])
+  })
+
   it('replaces fallback source options with API data when fetching sources succeeds', async () => {
     global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
       json: () => Promise.resolve([
         { id: 'codex', name: 'Codex Local', available: true },
       ]),
