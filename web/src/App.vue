@@ -8,7 +8,11 @@ const router = useRouter()
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
 const sidebarOpen = ref(true)
-const sources = ref([])
+const fallbackSources = [
+  { id: 'claude', name: 'Claude', available: true },
+  { id: 'codex', name: 'Codex', available: true },
+]
+const sources = ref([...fallbackSources])
 const activeSource = computed(() => sourceFromRoute(route))
 
 onMounted(async () => {
@@ -49,7 +53,7 @@ async function fetchSources() {
     const res = await fetch('/api/sources')
     sources.value = await res.json()
   } catch {
-    sources.value = []
+    sources.value = [...fallbackSources]
   }
 }
 
