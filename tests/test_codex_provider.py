@@ -190,7 +190,13 @@ class CodexProviderIndexTests(unittest.TestCase):
             insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha title", "build alpha", 1000, 3000)
             conn.close()
             (root / "history.jsonl").write_text(
-                json.dumps({"session_id": "thread-a", "ts": 1777000000000, "text": "build alpha"}) + "\n",
+                "\n".join(
+                    [
+                        json.dumps({"session_id": "thread-a", "ts": 1777000000000, "text": "build alpha"}),
+                        json.dumps({"session_id": "thread-a", "ts": 1777000001000, "text": "unrelated command"}),
+                    ]
+                )
+                + "\n",
                 encoding="utf-8",
             )
 
@@ -200,9 +206,16 @@ class CodexProviderIndexTests(unittest.TestCase):
             self.assertEqual(history["total"], 1)
             item = history["items"][0]
             self.assertEqual(item["sessionId"], "thread-a")
+            self.assertEqual(item["timestamp"], 1777000000000)
             self.assertEqual(item["display"], "build alpha")
             self.assertEqual(item["project"], "/repo/alpha")
             self.assertEqual(item["project_id"], provider.list_projects()[0]["id"])
+            self.assertEqual(item["source"], "codex")
+
+            missing = provider.get_history(page=1, limit=50, search="missing", project=None)
+
+            self.assertEqual(missing["total"], 0)
+            self.assertEqual(missing["items"], [])
 
 
 if __name__ == "__main__":
