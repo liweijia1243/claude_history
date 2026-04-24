@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="0.1.2"
+VERSION="0.1.3"
 PKG_NAME="claude-history_${VERSION}_arm64.pkg"
 PKG_ROOT="build_pkg_root"
 
