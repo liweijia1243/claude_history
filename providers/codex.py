@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 from collections import defaultdict
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple
@@ -30,7 +31,7 @@ class CodexProvider(HistoryProvider):
         if not self.available():
             return []
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT id, rollout_path, created_at, updated_at, source, model_provider, cwd,
@@ -38,7 +39,7 @@ class CodexProvider(HistoryProvider):
                        first_user_message, model, reasoning_effort, created_at_ms, updated_at_ms
                 FROM threads
                 WHERE archived = 0
-                ORDER BY updated_at_ms DESC, id DESC
+                ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC
                 """
             ).fetchall()
 
@@ -60,16 +61,19 @@ class CodexProvider(HistoryProvider):
     @staticmethod
     def _thread_modified_seconds(thread: Dict[str, Any]) -> float:
         updated_at_ms = thread.get("updated_at_ms")
-        if updated_at_ms:
+        if updated_at_ms is not None:
             return updated_at_ms / 1000
         return float(thread.get("updated_at") or 0)
 
     @staticmethod
     def _thread_created_seconds(thread: Dict[str, Any]) -> float:
         created_at_ms = thread.get("created_at_ms")
-        if created_at_ms:
+        if created_at_ms is not None:
             return created_at_ms / 1000
         return float(thread.get("created_at") or 0)
+
+    def _thread_sort_key(self, thread: Dict[str, Any]) -> Tuple[float, str]:
+        return self._thread_modified_seconds(thread), thread.get("id") or ""
 
     def _project_map(self) -> Dict[str, List[Dict[str, Any]]]:
         groups = defaultdict(list)  # type: DefaultDict[str, List[Dict[str, Any]]]
@@ -109,7 +113,7 @@ class CodexProvider(HistoryProvider):
             if self._project_id(cwd) == project_id:
                 return cwd, sorted(
                     threads,
-                    key=lambda item: (item.get("updated_at_ms") or 0, item.get("id") or ""),
+                    key=self._thread_sort_key,
                     reverse=True,
                 )
         raise FileNotFoundError("Project not found")
@@ -248,7 +252,7 @@ class CodexProvider(HistoryProvider):
                 if rollout.exists():
                     size += rollout.stat().st_size
 
-            newest_updated = max((thread.get("updated_at_ms") or 0 for thread in threads), default=0)
+            newest_updated = max((self._thread_modified_seconds(thread) for thread in threads), default=0)
             projects.append(
                 {
                     "id": self._project_id(cwd),
@@ -257,7 +261,7 @@ class CodexProvider(HistoryProvider):
                     "session_count": len(threads),
                     "size": size,
                     "source": self.id,
-                    "modified": newest_updated / 1000 if newest_updated else 0,
+                    "modified": newest_updated,
                 }
             )
 

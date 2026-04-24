@@ -183,6 +183,32 @@ class CodexProviderIndexTests(unittest.TestCase):
             self.assertEqual(detail["sessions"][0]["preview"], "debug alpha")
             self.assertEqual(detail["sessions"][0]["model"], "gpt-5.5")
 
+    def test_ordering_falls_back_to_updated_at_when_updated_at_ms_is_null(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            insert_thread(conn, root, "alpha-old", "/repo/alpha", "Alpha old", "old alpha", 1000, 1000)
+            insert_thread(conn, root, "alpha-fallback", "/repo/alpha", "Alpha new", "new alpha", 1000, 1000)
+            insert_thread(conn, root, "beta-fallback", "/repo/beta", "Beta new", "new beta", 1000, 1000)
+            conn.execute(
+                "UPDATE threads SET updated_at_ms = NULL, updated_at = ? WHERE id = ?",
+                (10, "alpha-fallback"),
+            )
+            conn.execute(
+                "UPDATE threads SET updated_at_ms = NULL, updated_at = ? WHERE id = ?",
+                (20, "beta-fallback"),
+            )
+            conn.commit()
+            conn.close()
+
+            provider = CodexProvider(root=root)
+            projects = provider.list_projects()
+            alpha_project_id = next(project["id"] for project in projects if project["path"] == "/repo/alpha")
+            alpha_detail = provider.get_project(alpha_project_id)
+
+            self.assertEqual([project["path"] for project in projects], ["/repo/beta", "/repo/alpha"])
+            self.assertEqual([session["id"] for session in alpha_detail["sessions"]], ["alpha-fallback", "alpha-old"])
+
     def test_history_uses_codex_history_jsonl_and_links_project_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
