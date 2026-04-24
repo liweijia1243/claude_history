@@ -1,15 +1,20 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTheme } from './composables/useTheme'
+import { DEFAULT_SOURCE, routePath, sourceFromRoute } from './utils/source'
 
 const router = useRouter()
 const route = useRoute()
 const { isDark, toggleTheme, initTheme } = useTheme()
 const sidebarOpen = ref(true)
+const sources = ref([])
+const activeSource = computed(() => sourceFromRoute(route))
 
-onMounted(() => {
+onMounted(async () => {
   initTheme()
+  await fetchSources()
+  restoreStoredSource()
 })
 
 const navItems = [
@@ -39,14 +44,65 @@ function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value
 }
 
+async function fetchSources() {
+  try {
+    const res = await fetch('/api/sources')
+    sources.value = await res.json()
+  } catch {
+    sources.value = []
+  }
+}
+
+function navPath(path) {
+  return routePath(activeSource.value, path)
+}
+
 function go(path) {
-  router.push(path)
+  router.push(navPath(path))
 }
 
 function isActive(path) {
-  if (path === '/') return route.path === '/'
-  return route.path.startsWith(path)
+  const target = routePath(activeSource.value, path)
+  if (path === '/') return route.path === target
+  return route.path === target || route.path.startsWith(`${target}/`)
 }
+
+function legacyPathFromRoute() {
+  if (!route.params.source) return route.path
+  const prefix = `/sources/${route.params.source}`
+  return route.path.startsWith(prefix) ? route.path.slice(prefix.length) || '/' : route.path
+}
+
+function onSourceChange(event) {
+  const nextSource = event.target.value
+  localStorage.setItem('active_source', nextSource)
+
+  const currentPath = legacyPathFromRoute()
+  const nextPath = currentPath === '/plans' && nextSource !== DEFAULT_SOURCE
+    ? routePath(nextSource, '/')
+    : routePath(nextSource, currentPath)
+  if (nextPath !== route.path) {
+    router.push({ path: nextPath, query: route.query })
+  }
+}
+
+function restoreStoredSource() {
+  const storedSource = localStorage.getItem('active_source')
+  const canUseStoredSource = sources.value.some(source => source.id === storedSource && source.available)
+  if (!route.params.source && route.path !== '/plans' && canUseStoredSource && storedSource !== activeSource.value) {
+    const nextPath = routePath(storedSource, route.path)
+    if (nextPath !== route.path) {
+      router.replace({ path: nextPath, query: route.query })
+      return
+    }
+  }
+
+  localStorage.setItem('active_source', activeSource.value)
+}
+
+watch(activeSource, source => {
+  localStorage.setItem('active_source', source)
+})
 </script>
 
 <template>
@@ -91,6 +147,29 @@ function isActive(path) {
 
       <!-- Bottom actions -->
       <div class="border-t border-[var(--border-color)]">
+        <!-- Source switcher -->
+        <div
+          v-if="sidebarOpen && sources.length"
+          class="px-3 py-2.5 border-b border-[var(--border-color)]"
+        >
+          <label class="block text-xs text-[var(--text-secondary)] mb-1" for="source-select">Source</label>
+          <select
+            id="source-select"
+            :value="activeSource"
+            @change="onSourceChange"
+            class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
+          >
+            <option
+              v-for="source in sources"
+              :key="source.id"
+              :value="source.id"
+              :disabled="!source.available"
+            >
+              {{ source.name }}
+            </option>
+          </select>
+        </div>
+
         <!-- Theme toggle -->
         <button
           @click="toggleTheme"

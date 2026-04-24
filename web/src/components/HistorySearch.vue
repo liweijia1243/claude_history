@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { DEFAULT_SOURCE, apiPath, routePath } from '../utils/source'
 
 const props = defineProps({
+  source: { type: String, default: DEFAULT_SOURCE },
   projectPath: { type: String, default: '' },
   syncUrl: { type: Boolean, default: true },
   showProject: { type: Boolean, default: true },
@@ -42,7 +44,7 @@ async function fetchHistory() {
     ...(search.value ? { search: search.value } : {}),
     ...(props.projectPath ? { project: props.projectPath } : {}),
   })
-  const res = await fetch(`/api/history?${params}`)
+  const res = await fetch(`${apiPath(props.source, '/history')}?${params}`)
   const data = await res.json()
   items.value = data.items
   total.value = data.total
@@ -57,7 +59,10 @@ function onSearchInput() {
   searchTimeout.value = setTimeout(() => {
     page.value = 1
     if (props.syncUrl) {
-      router.replace({ path: '/history', query: search.value ? { q: search.value } : {} })
+      router.replace({
+        path: routePath(props.source, '/history'),
+        query: search.value ? { q: search.value } : {},
+      })
     }
     fetchHistory()
   }, 300)
@@ -116,7 +121,7 @@ function navigateToConversation(item) {
     query.q = search.value
   }
   router.push({
-    path: `/projects/${projectId}/sessions/${sessionId}`,
+    path: routePath(props.source, `/projects/${projectId}/sessions/${sessionId}`),
     query,
   })
 }
@@ -181,6 +186,16 @@ onMounted(() => {
   }
 })
 watch(page, fetchHistory)
+watch(() => props.source, () => {
+  expandedItems.value = new Set()
+  if (!active.value && !hasLoaded.value) return
+
+  if (page.value !== 1) {
+    page.value = 1
+    return
+  }
+  fetchHistory()
+})
 </script>
 
 <template>
@@ -226,6 +241,7 @@ watch(page, fetchHistory)
             <div class="absolute -left-6 top-2 w-3.5 h-3.5 rounded-full border-2 border-[var(--border-color)] bg-[var(--bg-page)]"></div>
 
             <div
+              data-history-item
               class="bg-[var(--bg-card)]/50 rounded-lg px-4 py-3 hover:bg-[var(--bg-card)] transition-colors border border-transparent hover:border-[var(--border-color)] cursor-pointer"
               @click="handleClick(item)"
               @dblclick="handleDblClick(item)"

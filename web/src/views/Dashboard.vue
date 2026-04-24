@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import StatCard from '../components/dashboard/StatCard.vue'
 import TrendChart from '../components/dashboard/TrendChart.vue'
 import MessageTypeChart from '../components/dashboard/MessageTypeChart.vue'
@@ -9,30 +9,42 @@ import HourlyChart from '../components/dashboard/HourlyChart.vue'
 import TokenUsageChart from '../components/dashboard/TokenUsageChart.vue'
 import SessionDurationChart from '../components/dashboard/SessionDurationChart.vue'
 import RecentSessions from '../components/dashboard/RecentSessions.vue'
+import { apiPath, routePath, sourceFromRoute } from '../utils/source'
 
 const router = useRouter()
+const route = useRoute()
+const source = computed(() => sourceFromRoute(route))
 const dashboardStats = ref(null)
 const recentSessions = ref([])
 const loading = ref(true)
 const range = ref('30d')
 
 async function fetchDashboardStats() {
-  const res = await fetch(`/api/dashboard-stats?range=${range.value}`)
+  const res = await fetch(`${apiPath(source.value, '/dashboard-stats')}?range=${range.value}`)
   dashboardStats.value = await res.json()
 }
 
 async function fetchRecentSessions() {
-  const res = await fetch('/api/recent-sessions?limit=4')
+  const res = await fetch(`${apiPath(source.value, '/recent-sessions')}?limit=4`)
   recentSessions.value = await res.json()
 }
 
-onMounted(async () => {
+async function loadDashboard() {
+  loading.value = true
   await Promise.all([fetchDashboardStats(), fetchRecentSessions()])
   loading.value = false
+}
+
+onMounted(async () => {
+  await loadDashboard()
 })
 
 watch(range, () => {
   fetchDashboardStats()
+})
+
+watch(source, () => {
+  loadDashboard()
 })
 
 // ── Sparkline data: last 7 entries from daily_series ──
@@ -62,7 +74,7 @@ const icons = {
 }
 
 function navigateToProject(projectId) {
-  router.push(`/projects/${projectId}`)
+  router.push(routePath(source.value, `/projects/${projectId}`))
 }
 </script>
 

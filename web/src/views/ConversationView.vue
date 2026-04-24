@@ -8,6 +8,7 @@ import ToolCallBlock from '../components/ToolCallBlock.vue'
 import ThinkingBlock from '../components/ThinkingBlock.vue'
 import CodeBlock from '../components/CodeBlock.vue'
 import { stripAnsi, isTerminalOutput, processTerminalOutput } from '../utils/ansiToHtml.js'
+import { apiPath, routePath, sourceFromRoute } from '../utils/source'
 
 // Custom renderer for code blocks
 const renderer = new marked.Renderer()
@@ -34,8 +35,10 @@ const props = defineProps({
 
 const route = useRoute()
 const router = useRouter()
+const source = computed(() => sourceFromRoute(route))
 const conversation = ref([])
 const subagents = ref([])
+const sessionMetadata = ref({})
 const loading = ref(true)
 const fromHistory = computed(() => route.query.source === 'history')
 const fromProject = computed(() => route.query.source === 'project')
@@ -65,14 +68,20 @@ watch(subagentShowTools, v => localStorage.setItem('conv_subagentShowTools', v))
 const selectedSubagent = ref(null)
 const subagentConversation = ref([])
 
-onMounted(async () => {
-  const res = await fetch(`/api/projects/${props.projectId}/sessions/${props.sessionId}`)
+async function fetchConversation() {
+  loading.value = true
+  const res = await fetch(apiPath(source.value, `/projects/${props.projectId}/sessions/${props.sessionId}`))
   const data = await res.json()
   conversation.value = data.conversation
   subagents.value = data.subagents || []
+  sessionMetadata.value = data.metadata || {}
   totalRaw.value = data.total_raw_messages
   loading.value = false
   scrollToMessage()
+}
+
+onMounted(async () => {
+  await fetchConversation()
 })
 
 function formatTime(ts) {
@@ -119,7 +128,7 @@ function getModelIcon(model) {
 
 async function openSubagent(agent) {
   const res = await fetch(
-    `/api/projects/${props.projectId}/sessions/${props.sessionId}/subagents/${agent.filename}`
+    apiPath(source.value, `/projects/${props.projectId}/sessions/${props.sessionId}/subagents/${agent.filename}`)
   )
   const data = await res.json()
   subagentConversation.value = data.conversation
@@ -145,7 +154,7 @@ function handleAgentClick(tool) {
 }
 
 function goBack() {
-  router.push(`/projects/${props.projectId}`)
+  router.push(routePath(source.value, `/projects/${props.projectId}`))
 }
 
 async function scrollToMessage() {
@@ -188,13 +197,22 @@ async function scrollToMessage() {
 
 function goBackToHistory() {
   const query = route.query.q ? { q: route.query.q } : {}
-  router.push({ path: '/history', query })
+  router.push({ path: routePath(source.value, '/history'), query })
 }
 
 function goBackToProject() {
   const query = route.query.q ? { q: route.query.q } : {}
-  router.push({ path: `/projects/${props.projectId}`, query })
+  router.push({ path: routePath(source.value, `/projects/${props.projectId}`), query })
 }
+
+const sessionModel = computed(() => sessionMetadata.value?.model || '')
+const sessionReasoningEffort = computed(() => sessionMetadata.value?.reasoning_effort || '')
+
+watch([source, () => props.projectId, () => props.sessionId], () => {
+  selectedSubagent.value = null
+  subagentConversation.value = []
+  fetchConversation()
+})
 </script>
 
 <template>
@@ -227,6 +245,12 @@ function goBackToProject() {
       <div class="flex-1 min-w-0">
         <span class="text-sm text-[var(--text-secondary)] font-mono">{{ sessionId }}</span>
         <span class="text-xs text-[var(--text-secondary)] opacity-50 ml-3">{{ totalRaw }} raw messages</span>
+        <span v-if="sessionModel" class="text-xs text-[var(--text-secondary)] ml-3">
+          {{ getModelShort(sessionModel) }}
+        </span>
+        <span v-if="sessionReasoningEffort" class="text-xs text-[var(--text-secondary)] ml-2">
+          reasoning: {{ sessionReasoningEffort }}
+        </span>
       </div>
       <label class="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
         <input type="checkbox" v-model="showThinking" class="rounded border-[var(--border-color)] accent-purple-500" />
@@ -311,7 +335,7 @@ function goBackToProject() {
           </div>
 
           <!-- Assistant Message -->
-          <div v-else class="w-full">
+          <div v-else-if="msg.role === 'assistant'" class="w-full">
             <!-- Model header -->
             <div v-if="msg.model && (msg.content || (showThinking && msg.thinking) || (showTools && getNonAgentTools(msg.tool_uses).length) || (showAgents && getAgentTools(msg.tool_uses).length))" class="flex items-center gap-2 mb-3">
               <span class="text-sm">{{ getModelIcon(msg.model) }}</span>
@@ -348,6 +372,20 @@ function goBackToProject() {
               :tool-results="msg.tool_results"
               :open-subagent-handler="handleAgentClick"
             />
+          </div>
+
+          <!-- Event Message -->
+          <div v-else class="flex justify-center" :data-msg-timestamp="msg.timestamp">
+            <div class="max-w-[85%] rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+              <div v-if="msg.metadata?.phase" class="mb-1 font-semibold uppercase tracking-wide">
+                {{ msg.metadata.phase }}
+              </div>
+              <div
+                v-if="msg.content"
+                class="prose prose-sm max-w-none"
+                v-html="renderMarkdown(msg.content)"
+              ></div>
+            </div>
           </div>
         </div>
 

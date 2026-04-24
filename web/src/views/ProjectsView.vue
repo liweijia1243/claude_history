@@ -1,8 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { apiPath, routePath, sourceFromRoute } from '../utils/source'
 
 const router = useRouter()
+const route = useRoute()
+const source = computed(() => sourceFromRoute(route))
 const projects = ref([])
 const loading = ref(true)
 const searchQuery = ref('')
@@ -13,10 +16,19 @@ const filteredProjects = computed(() => {
   return projects.value.filter(p => p.path.toLowerCase().includes(q))
 })
 
-onMounted(async () => {
-  const res = await fetch('/api/projects')
+async function fetchProjects() {
+  loading.value = true
+  const res = await fetch(apiPath(source.value, '/projects'))
   projects.value = await res.json()
   loading.value = false
+}
+
+onMounted(async () => {
+  await fetchProjects()
+})
+
+watch(source, () => {
+  fetchProjects()
 })
 
 function formatSize(bytes) {
@@ -37,7 +49,7 @@ function projectParent(path) {
 }
 
 function openProject(projectId) {
-  router.push(`/projects/${projectId}`)
+  router.push(routePath(source.value, `/projects/${projectId}`))
 }
 </script>
 

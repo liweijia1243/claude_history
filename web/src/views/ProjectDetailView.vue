@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import HistorySearch from '../components/HistorySearch.vue'
+import { apiPath, routePath, sourceFromRoute } from '../utils/source'
 
 const props = defineProps({
   projectId: String
@@ -9,21 +10,31 @@ const props = defineProps({
 
 const route = useRoute()
 const router = useRouter()
+const source = computed(() => sourceFromRoute(route))
 const project = ref(null)
 const sessions = ref([])
 const loading = ref(true)
 const searchActive = ref(false)
 
-onMounted(async () => {
-  const res = await fetch(`/api/projects/${props.projectId}`)
+async function fetchProject() {
+  loading.value = true
+  const res = await fetch(apiPath(source.value, `/projects/${props.projectId}`))
   if (!res.ok) {
-    router.push('/projects')
+    router.push(routePath(source.value, '/projects'))
     return
   }
   const data = await res.json()
   project.value = data
   sessions.value = data.sessions
   loading.value = false
+}
+
+onMounted(async () => {
+  await fetchProject()
+})
+
+watch([source, () => props.projectId], () => {
+  fetchProject()
 })
 
 function formatTime(ts) {
@@ -38,11 +49,11 @@ function formatTime(ts) {
 }
 
 function goBack() {
-  router.push('/projects')
+  router.push(routePath(source.value, '/projects'))
 }
 
 function openSession(sessionId) {
-  router.push(`/projects/${props.projectId}/sessions/${sessionId}`)
+  router.push(routePath(source.value, `/projects/${props.projectId}/sessions/${sessionId}`))
 }
 
 function onSearchActive(active) {
@@ -75,6 +86,7 @@ function onSearchActive(active) {
       <!-- Search bar + results (always rendered, single instance) -->
       <div class="p-6 max-w-5xl mx-auto">
         <HistorySearch
+          :source="source"
           :project-path="project?.path || ''"
           :sync-url="false"
           :show-project="false"
