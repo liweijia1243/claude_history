@@ -31,9 +31,11 @@ describe('ToolCallBlock Codex tools', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.text()).toContain('exit 0')
-    expect(wrapper.text()).toContain('/repo/alpha')
-    expect(wrapper.text()).toContain('command output')
+    const terminalOutput = wrapper.get('.terminal-output')
+    expect(terminalOutput.exists()).toBe(true)
+    expect(terminalOutput.text()).toContain('exit 0')
+    expect(terminalOutput.text()).toContain('/repo/alpha')
+    expect(terminalOutput.text()).toContain('command output')
   })
 
   it('keeps unknown tools visible through fallback json rendering', async () => {
