@@ -420,6 +420,67 @@ class CodexProviderConversationTests(unittest.TestCase):
             self.assertEqual(session["metadata"]["timezone"], "Asia/Shanghai")
             self.assertEqual(session["metadata"]["last_token_count"], events[1]["payload"])
 
+    def test_transcript_internal_and_user_messages_do_not_render_as_chat_bubbles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "hello", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "Do not leak developer setup"}],
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "transcript duplicate hello"}],
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "user_message",
+                        "message": "hello",
+                        "images": [],
+                        "local_images": [],
+                        "text_elements": [],
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "Visible assistant reply"}],
+                    },
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            self.assertEqual([message["role"] for message in session["conversation"]], ["user", "assistant"])
+            self.assertEqual(session["conversation"][0]["content"], "hello")
+            self.assertEqual(session["conversation"][1]["content"], "Visible assistant reply")
+            session_json = json.dumps(session)
+            self.assertNotIn("Do not leak developer setup", session_json)
+            self.assertNotIn("transcript duplicate hello", session_json)
+            self.assertEqual(session["metadata"]["internal_message_counts"]["developer"], 1)
+            self.assertEqual(session["metadata"]["internal_message_counts"]["user"], 1)
+
     def test_encrypted_reasoning_does_not_expose_ciphertext(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

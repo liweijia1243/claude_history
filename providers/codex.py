@@ -384,6 +384,7 @@ class CodexProvider(HistoryProvider):
             "source": thread.get("source") or "",
             "source_provider": self.id,
             "codex_source": thread.get("source") or "",
+            "internal_message_counts": {},
         }
 
         def ensure_assistant(timestamp: Any = "") -> Dict[str, Any]:
@@ -463,19 +464,11 @@ class CodexProvider(HistoryProvider):
 
             if payload_type == "message":
                 role = payload.get("role", "assistant")
-                content = self._content_text(payload.get("content"))
-                if role == "user":
-                    flush_assistant()
-                    conversation.append(
-                        make_message(
-                            role="user",
-                            content=content,
-                            timestamp=timestamp,
-                            metadata={"source": self.id},
-                        )
-                    )
+                if role == "assistant":
+                    append_assistant_text(ensure_assistant(timestamp), self._content_text(payload.get("content")))
                 else:
-                    append_assistant_text(ensure_assistant(timestamp), content)
+                    counts = metadata["internal_message_counts"]
+                    counts[role] = counts.get(role, 0) + 1
                 continue
 
             if payload_type == "reasoning":
