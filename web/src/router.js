@@ -14,6 +14,15 @@ const routes = [
   { path: '/projects', component: ProjectsView },
   { path: '/projects/:projectId', component: ProjectDetailView, props: true },
   { path: '/projects/:projectId/sessions/:sessionId', component: ConversationView, props: true },
+  { path: '/sources/:source', component: Dashboard },
+  { path: '/sources/:source/history', component: HistoryView },
+  { path: '/sources/:source/projects', component: ProjectsView },
+  { path: '/sources/:source/projects/:projectId', component: ProjectDetailView, props: true },
+  {
+    path: '/sources/:source/projects/:projectId/sessions/:sessionId',
+    component: ConversationView,
+    props: true,
+  },
 ]
 
 export default createRouter({
