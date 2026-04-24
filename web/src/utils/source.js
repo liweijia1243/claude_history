@@ -9,14 +9,15 @@ export function sourceFromRoute(route) {
 }
 
 export function apiPath(source, path) {
+  const resolvedSource = source || DEFAULT_SOURCE
   const normalizedPath = normalizePath(path)
-  return normalizedPath ? `/api/${source}/${normalizedPath}` : `/api/${source}`
+  return normalizedPath ? `/api/${resolvedSource}/${normalizedPath}` : `/api/${resolvedSource}`
 }
 
 export function routePath(source = DEFAULT_SOURCE, path) {
   const normalizedPath = normalizePath(path)
 
-  if (!source || source === DEFAULT_SOURCE) {
+  if (!source || source === DEFAULT_SOURCE || normalizedPath === 'plans') {
     return normalizedPath ? `/${normalizedPath}` : '/'
   }
 

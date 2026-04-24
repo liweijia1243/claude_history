@@ -18,6 +18,11 @@ describe('apiPath', () => {
     expect(apiPath('codex', 'projects')).toBe('/api/codex/projects')
     expect(apiPath('codex', '/projects')).toBe('/api/codex/projects')
   })
+
+  it('defaults missing sources to claude', () => {
+    expect(apiPath(undefined, '/projects')).toBe('/api/claude/projects')
+    expect(apiPath('', '/projects')).toBe('/api/claude/projects')
+  })
 })
 
 describe('routePath', () => {
@@ -30,5 +35,10 @@ describe('routePath', () => {
     expect(routePath('codex', 'projects')).toBe('/sources/codex/projects')
     expect(routePath('codex', '/projects')).toBe('/sources/codex/projects')
     expect(routePath('codex', '')).toBe('/sources/codex')
+  })
+
+  it('keeps plans as a legacy claude-only path', () => {
+    expect(routePath('codex', '/plans')).toBe('/plans')
+    expect(routePath('codex', 'plans')).toBe('/plans')
   })
 })
