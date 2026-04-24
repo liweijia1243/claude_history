@@ -4,9 +4,9 @@
 
 # Claude History Viewer
 
-**[Claude Code](https://claude.ai/code) 会话记录可视化查看器**
+**[Claude Code](https://claude.ai/code) 与 Codex 会话记录可视化查看器**
 
-读取本机 `~/.claude/` 下的数据，通过美观的 Web 界面展示对话历史、实施计划、项目会话等内容。
+读取本机 `~/.claude/` 与 `~/.codex/` 下的数据，通过美观的 Web 界面展示 Claude Code 和 Codex 的对话历史、实施计划、项目会话等内容。
 
 [![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
@@ -166,7 +166,7 @@ python server.py --no-open    # 不自动打开浏览器
 ## 架构
 
 ```
-server.py          # FastAPI 后端，直接读取 ~/.claude/ 数据，无数据库
+server.py          # FastAPI 后端，直接读取 ~/.claude/ 与 ~/.codex/ 数据，无数据库
 web/               # Vue 3 + Tailwind CSS 前端
   src/
     views/         # 页面组件（Dashboard, History, Plans, Projects, Conversation）
@@ -177,16 +177,18 @@ web/               # Vue 3 + Tailwind CSS 前端
 
 ### 数据来源
 
-| 路径 | 内容 |
-|------|------|
-| `~/.claude/history.jsonl` | 所有用户命令 |
-| `~/.claude/plans/*.md` | 实施计划（Markdown） |
-| `~/.claude/projects/<dir>/*.jsonl` | 项目会话的完整对话 |
-| `~/.claude/projects/<dir>/<session>/subagents/` | 子代理对话 |
+| 来源 | 路径 | 内容 |
+|------|------|------|
+| Claude | `~/.claude/history.jsonl` | 用户命令历史 |
+| Claude | `~/.claude/plans/*.md` | 实施计划 |
+| Claude | `~/.claude/projects/<dir>/*.jsonl` | 项目会话 |
+| Codex | `~/.codex/state_5.sqlite` | thread 索引、cwd、模型、rollout 路径 |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | 完整会话事件流 |
+| Codex | `~/.codex/history.jsonl` | 用户命令历史 |
 
 ### 数据隐私
 
-**100% 本地运行。** 所有数据直接从本机 `~/.claude/` 目录读取，不上传任何数据到外部服务器，无需 API Key。
+**100% 本地运行。** 所有数据直接从本机 `~/.claude/` 与 `~/.codex/` 目录读取，不上传任何数据到外部服务器，无需 API Key。
 
 ---
 

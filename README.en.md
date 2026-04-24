@@ -4,9 +4,9 @@
 
 # Claude History Viewer
 
-**A visual history viewer for [Claude Code](https://claude.ai/code) sessions**
+**A visual history viewer for [Claude Code](https://claude.ai/code) and Codex sessions**
 
-Reads data from the local `~/.claude/` directory and presents conversation history, implementation plans, and project sessions through a beautiful web interface.
+Reads data from the local `~/.claude/` and `~/.codex/` directories and presents Claude Code and Codex conversation history, implementation plans, and project sessions through a beautiful web interface.
 
 [![GitHub Release](https://img.shields.io/github/v/release/liweijia1243/claude_history?include_prereleases)](https://github.com/liweijia1243/claude_history/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://github.com/liweijia1243/claude_history/releases) [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/) [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 
@@ -166,7 +166,7 @@ python server.py --no-open    # Don't auto-open browser
 ## Architecture
 
 ```
-server.py          # FastAPI backend, reads ~/.claude/ data directly, no database
+server.py          # FastAPI backend, reads ~/.claude/ and ~/.codex/ data directly, no database
 web/               # Vue 3 + Tailwind CSS frontend
   src/
     views/         # Page components (Dashboard, History, Plans, Projects, Conversation)
@@ -177,16 +177,18 @@ web/               # Vue 3 + Tailwind CSS frontend
 
 ### Data Sources
 
-| Path | Content |
-|------|---------|
-| `~/.claude/history.jsonl` | All user commands |
-| `~/.claude/plans/*.md` | Implementation plans (Markdown) |
-| `~/.claude/projects/<dir>/*.jsonl` | Full project session conversations |
-| `~/.claude/projects/<dir>/<session>/subagents/` | Sub-agent conversations |
+| Source | Path | Content |
+|--------|------|---------|
+| Claude | `~/.claude/history.jsonl` | User command history |
+| Claude | `~/.claude/plans/*.md` | Implementation plans |
+| Claude | `~/.claude/projects/<dir>/*.jsonl` | Project sessions |
+| Codex | `~/.codex/state_5.sqlite` | Thread index, cwd, model, rollout path |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | Full session event stream |
+| Codex | `~/.codex/history.jsonl` | User command history |
 
 ### Data Privacy
 
-**100% local.** All data is read directly from the local `~/.claude/` directory. Nothing is uploaded to external servers. No API key required.
+**100% local.** All data is read directly from the local `~/.claude/` and `~/.codex/` directories. Nothing is uploaded to external servers. No API key required.
 
 ---
 
