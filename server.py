@@ -1,25 +1,19 @@
 """Claude History Viewer - FastAPI Backend"""
-import json
-import os
-import glob
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 import sys
-import time as _time
-from collections import defaultdict
 
-from fastapi import FastAPI, Query, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-CLAUDE_DIR = Path(os.path.expanduser("~/.claude"))
+from providers import get_provider, list_sources
 
 
 def get_base_path():
     """获取资源文件基础路径，兼容 PyInstaller 和普通运行"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS)
     return Path(__file__).parent
 
@@ -34,626 +28,43 @@ app.add_middleware(
 )
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-def read_jsonl(path: Path, limit: int = 0):
-    """Read a JSONL file and return list of parsed JSON objects."""
-    items = []
-    if not path.exists():
-        return items
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                items.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return items
+def provider_or_404(source: str):
+    provider = get_provider(source)
+    if provider is None or not provider.available():
+        raise HTTPException(404, "Source not found/unavailable")
+    return provider
 
 
-def find_string_line(content: str, search_string: str) -> int | None:
-    """Find the 1-indexed line number where search_string starts."""
-    if not content or not search_string:
-        return None
-
-    lines = content.split("\n")
-    search_lines = search_string.split("\n")
-    first_line = search_lines[0] if search_lines else ""
-
-    for i, line in enumerate(lines):
-        if line == first_line:
-            # Verify full match
-            match = True
-            for j, search_line in enumerate(search_lines):
-                if i + j >= len(lines) or lines[i + j] != search_line:
-                    match = False
-                    break
-            if match:
-                return i + 1  # 1-indexed
-    return None
-
-
-def build_file_timeline(messages: list[dict]) -> dict:
-    """Build timeline of file states from file-history-snapshot messages."""
-    file_timeline = {}  # file_path -> [{"backup_file", "time", "idx"}]
-
-    for idx, msg in enumerate(messages):
-        if msg.get("type") != "file-history-snapshot":
-            continue
-
-        snapshot = msg.get("snapshot", {})
-        backups = snapshot.get("trackedFileBackups", {})
-
-        for file_path, info in backups.items():
-            backup_file = info.get("backupFileName")
-            if not backup_file:  # Skip entries without actual backups
-                continue
-            file_timeline.setdefault(file_path, []).append({
-                "backup_file": backup_file,
-                "time": info.get("backupTime"),
-                "idx": idx
-            })
-
-    return file_timeline
-
-
-def find_state_before(timeline: dict, file_path: str, current_idx: int) -> dict | None:
-    """Find the most recent file state before the given message index.
-
-    Uses suffix matching: if exact file_path not found, tries to match
-    by checking if any timeline key is a suffix of the edit's file_path.
-    """
-    states = timeline.get(file_path, [])
-
-    # Try suffix matching if exact match fails
-    if not states:
-        for key in timeline:
-            # Check if snapshot path (e.g., "server.py") matches end of edit path
-            if file_path.endswith("/" + key) or file_path.endswith(key):
-                states = timeline[key]
-                break
-
-    before = [s for s in states if s["idx"] < current_idx]
-    return max(before, key=lambda s: s["idx"]) if before else None
-
-
-def enrich_tool_uses_with_line_numbers(messages: list[dict], session_id: str = "") -> list[dict]:
-    """Add startLine to Edit tool uses based on file-history snapshots."""
-    file_timeline = build_file_timeline(messages)
-
-    for idx, msg in enumerate(messages):
-        if msg.get("type") != "assistant":
-            continue
-
-        content_blocks = msg.get("message", {}).get("content", [])
-        for block in content_blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") != "tool_use":
-                continue
-            if block.get("name") != "Edit":
-                continue
-
-            input_data = block.get("input", {})
-            file_path = input_data.get("file_path", "")
-            old_string = input_data.get("old_string", "")
-
-            if not file_path or not old_string:
-                continue
-
-            state = find_state_before(file_timeline, file_path, idx)
-            if not state:
-                continue
-
-            backup_file = state.get("backup_file")
-            if not backup_file:
-                continue
-
-            # file-history dirs are keyed by session_id, not message_id
-            backup_path = CLAUDE_DIR / "file-history" / session_id / backup_file
-
-            try:
-                content = backup_path.read_text(encoding="utf-8")
-                start_line = find_string_line(content, old_string)
-                if start_line is not None:
-                    block["startLine"] = start_line
-            except (FileNotFoundError, OSError):
-                pass
-
-    return messages
-
-
-def reconstruct_conversation(messages: list[dict], session_id: str = "") -> list[dict]:
-    """Reconstruct a conversation thread from raw JSONL messages.
-
-    Groups user messages, assistant messages, and tool results together.
-    Enriches Edit tool uses with line numbers from file history.
-    """
-    # First, enrich tool uses with line numbers
-    messages = enrich_tool_uses_with_line_numbers(messages, session_id)
-
-    uuid_map = {m.get("uuid"): m for m in messages if m.get("uuid")}
-    conversation = []
-    assistant_buffer = None
-
-    for msg in messages:
-        msg_type = msg.get("type")
-
-        if msg_type == "user":
-            content = msg.get("message", {}).get("content", "")
-            # Check if this is a tool result
-            if isinstance(content, list):
-                has_tool_result = any(
-                    isinstance(c, dict) and c.get("type") == "tool_result"
-                    for c in content
-                )
-                if has_tool_result:
-                    # Attach tool results to the previous assistant message
-                    if assistant_buffer is not None:
-                        tool_results = []
-                        for c in content:
-                            if isinstance(c, dict) and c.get("type") == "tool_result":
-                                tool_results.append({
-                                    "tool_use_id": c.get("tool_use_id", ""),
-                                    "content": c.get("content", ""),
-                                    "is_error": c.get("is_error", False),
-                                })
-                        assistant_buffer["tool_results"] = tool_results
-
-                    # Extract structuredPatch from top-level toolUseResult
-                    raw_result = msg.get("toolUseResult")
-                    if raw_result and isinstance(raw_result, dict):
-                        structured_patch = raw_result.get("structuredPatch")
-                        file_path = raw_result.get("filePath", "")
-                        if structured_patch and assistant_buffer is not None:
-                            # Find the matching tool_use by file_path
-                            for tool_use in assistant_buffer.get("tool_uses", []):
-                                if tool_use.get("name") == "Edit":
-                                    tool_input = tool_use.get("input", {})
-                                    if tool_input.get("file_path") == file_path:
-                                        tool_use["structuredPatch"] = structured_patch
-                                        break
-                    continue
-
-            # Regular user message
-            if assistant_buffer is not None:
-                conversation.append(assistant_buffer)
-                assistant_buffer = None
-
-            text = ""
-            if isinstance(content, str):
-                text = content
-            elif isinstance(content, list):
-                parts = []
-                for c in content:
-                    if isinstance(c, dict):
-                        if c.get("type") == "text":
-                            parts.append(c.get("text", ""))
-                        elif c.get("type") == "tool_result":
-                            pass  # handled above
-                    elif isinstance(c, str):
-                        parts.append(c)
-                text = "\n".join(parts)
-
-            conversation.append({
-                "role": "user",
-                "content": text,
-                "timestamp": msg.get("timestamp", ""),
-                "uuid": msg.get("uuid", ""),
-            })
-
-        elif msg_type == "assistant":
-            if assistant_buffer is not None:
-                conversation.append(assistant_buffer)
-
-            message_data = msg.get("message", {})
-            content_blocks = message_data.get("content", [])
-
-            text_parts = []
-            thinking_parts = []
-            tool_uses = []
-
-            for block in content_blocks:
-                if not isinstance(block, dict):
-                    continue
-                block_type = block.get("type", "")
-                if block_type == "text":
-                    text_parts.append(block.get("text", ""))
-                elif block_type == "thinking":
-                    thinking_parts.append(block.get("thinking", ""))
-                elif block_type == "tool_use":
-                    tool_use = {
-                        "id": block.get("id", ""),
-                        "name": block.get("name", ""),
-                        "input": block.get("input", {}),
-                    }
-                    if "startLine" in block:
-                        tool_use["startLine"] = block["startLine"]
-                    tool_uses.append(tool_use)
-
-            model = message_data.get("model", "")
-            usage = message_data.get("usage", {})
-
-            assistant_buffer = {
-                "role": "assistant",
-                "content": "\n".join(text_parts),
-                "thinking": "\n".join(thinking_parts),
-                "tool_uses": tool_uses,
-                "tool_results": [],
-                "model": model,
-                "usage": usage,
-                "timestamp": msg.get("timestamp", ""),
-                "uuid": msg.get("uuid", ""),
-            }
-
-    if assistant_buffer is not None:
-        conversation.append(assistant_buffer)
-
-    return conversation
-
-
-def build_session_project_map():
-    """Build a mapping from session_id to project_id by scanning project directories."""
-    projects_dir = CLAUDE_DIR / "projects"
-    mapping = {}
-    if not projects_dir.exists():
-        return mapping
-    for project_dir in projects_dir.iterdir():
-        if not project_dir.is_dir():
-            continue
-        for session_file in project_dir.glob("*.jsonl"):
-            mapping[session_file.stem] = project_dir.name
-    return mapping
-
-
-# ── Dashboard Stats Cache ────────────────────────────────────────────────────
-
-_dashboard_cache: dict = {}  # key: range_str, value: {"data": ..., "ts": float}
-_CACHE_TTL = 300  # 5 minutes
-
-
-def _get_cached_dashboard_stats(range_str: str):
-    """Return cached stats if fresh, else None."""
-    entry = _dashboard_cache.get(range_str)
-    if entry and (_time.time() - entry["ts"]) < _CACHE_TTL:
-        return entry["data"]
-    return None
-
-
-def _set_dashboard_cache(range_str: str, data: dict):
-    _dashboard_cache[range_str] = {"data": data, "ts": _time.time()}
+def _not_found_as_http404(callback):
+    try:
+        return callback()
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
 
 
 # ── API Routes ───────────────────────────────────────────────────────────────
 
+@app.get("/api/sources")
+def get_sources():
+    return list_sources()
+
+
 @app.get("/api/stats")
 def get_stats():
     """Get overview statistics."""
-    # History stats
-    history = read_jsonl(CLAUDE_DIR / "history.jsonl")
-    history_count = len(history)
-
-    # Plans stats
-    plans_dir = CLAUDE_DIR / "plans"
-    plan_files = list(plans_dir.glob("*.md")) if plans_dir.exists() else []
-
-    # Projects stats
-    projects_dir = CLAUDE_DIR / "projects"
-    project_dirs = []
-    session_count = 0
-    if projects_dir.exists():
-        for d in projects_dir.iterdir():
-            if d.is_dir():
-                project_dirs.append(d.name)
-                session_count += len(list(d.glob("*.jsonl")))
-
-    # Recent activity (last 24h)
-    now_ms = datetime.now().timestamp() * 1000
-    day_ago = now_ms - 86400000
-    recent_commands = sum(
-        1 for h in history if h.get("timestamp", 0) > day_ago
-    )
-
-    return {
-        "total_commands": history_count,
-        "total_plans": len(plan_files),
-        "total_projects": len(project_dirs),
-        "total_sessions": session_count,
-        "recent_commands_24h": recent_commands,
-    }
+    return provider_or_404("claude").get_stats()
 
 
 @app.get("/api/dashboard-stats")
 def get_dashboard_stats(range: str = Query("30d", pattern="^(7d|30d|all)$")):
     """Get comprehensive dashboard statistics."""
-    cached = _get_cached_dashboard_stats(range)
-    if cached:
-        return cached
-
-    now_ms = datetime.now().timestamp() * 1000
-    if range == "7d":
-        range_ms = 7 * 86400000
-    elif range == "30d":
-        range_ms = 30 * 86400000
-    else:
-        range_ms = None  # all time
-
-    cutoff_ms = (now_ms - range_ms) if range_ms else 0
-    prev_cutoff_ms = (cutoff_ms - range_ms) if range_ms else 0
-
-    # ── Read history ──
-    history = read_jsonl(CLAUDE_DIR / "history.jsonl")
-    history_in_range = [h for h in history if h.get("timestamp", 0) > cutoff_ms]
-    history_in_prev = [h for h in history if prev_cutoff_ms < h.get("timestamp", 0) <= cutoff_ms] if range_ms else []
-
-    # ── Daily series from history (commands) ──
-    daily_commands = defaultdict(int)
-    hourly_dist = [0] * 24
-    for h in history_in_range:
-        ts = h.get("timestamp", 0)
-        if ts:
-            dt = datetime.fromtimestamp(ts / 1000)
-            day_str = dt.strftime("%Y-%m-%d")
-            daily_commands[day_str] += 1
-            hourly_dist[dt.hour] += 1
-
-    # ── Scan projects ──
-    projects_dir = CLAUDE_DIR / "projects"
-    project_dirs = []
-    session_files_all = []
-    if projects_dir.exists():
-        for d in projects_dir.iterdir():
-            if d.is_dir():
-                project_dirs.append(d)
-                for sf in d.glob("*.jsonl"):
-                    session_files_all.append((d, sf))
-
-    # ── Per-project session counts & daily sessions ──
-    daily_sessions = defaultdict(int)
-    project_session_counts = defaultdict(lambda: {"count": 0, "name": "", "id": ""})
-    session_files_in_range = []
-
-    for project_dir, sf in session_files_all:
-        mtime = sf.stat().st_mtime
-        mtime_ms = mtime * 1000
-        if mtime_ms > cutoff_ms:
-            day_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-            daily_sessions[day_str] += 1
-            session_files_in_range.append((project_dir, sf))
-
-        # Count all sessions per project (not just in range) for top projects
-        pid = project_dir.name
-        project_session_counts[pid]["count"] += 1
-        project_session_counts[pid]["id"] = pid
-
-    # ── Resolve project display names ──
-    for project_dir in project_dirs:
-        pid = project_dir.name
-        if pid in project_session_counts and not project_session_counts[pid]["name"]:
-            # Try to get actual path from first session
-            for sf in project_dir.glob("*.jsonl"):
-                msgs = read_jsonl(sf, limit=3)
-                for m in msgs:
-                    cwd = m.get("cwd", "")
-                    if cwd:
-                        project_session_counts[pid]["name"] = cwd.rstrip("/").split("/")[-1]
-                        break
-                break
-            if not project_session_counts[pid]["name"]:
-                project_session_counts[pid]["name"] = pid
-
-    # ── Top 5 projects ──
-    top_projects = sorted(
-        project_session_counts.values(),
-        key=lambda x: x["count"],
-        reverse=True
-    )[:5]
-    top_projects_out = [
-        {"project_id": p["id"], "project_name": p["name"], "session_count": p["count"]}
-        for p in top_projects
-    ]
-
-    # ── Message types & token usage (sample up to 100 session files in range) ──
-    message_types = defaultdict(int)
-    total_input_tokens = 0
-    total_output_tokens = 0
-    session_durations = {"under_5min": 0, "5_to_15min": 0, "15_to_30min": 0, "30_to_60min": 0, "over_60min": 0}
-    daily_tokens = defaultdict(int)
-
-    files_to_scan = session_files_in_range if len(session_files_in_range) <= 100 else session_files_in_range[:100]
-
-    for project_dir, sf in files_to_scan:
-        msgs = read_jsonl(sf)
-        timestamps = []
-        for m in msgs:
-            msg_type = m.get("type", "")
-            if msg_type in ("user", "assistant"):
-                message_types[msg_type] += 1
-                ts = m.get("timestamp")
-                if ts:
-                    if isinstance(ts, str):
-                        try:
-                            ts = datetime.fromisoformat(ts).timestamp() * 1000
-                        except (ValueError, TypeError):
-                            ts = None
-                    if ts:
-                        timestamps.append(ts)
-
-            # Count tool_use and tool_result from content blocks
-            if msg_type == "assistant":
-                content = m.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict):
-                            bt = block.get("type", "")
-                            if bt == "tool_use":
-                                message_types["tool_use"] += 1
-
-                usage = m.get("message", {}).get("usage", {})
-                inp = usage.get("input_tokens", 0)
-                out = usage.get("output_tokens", 0)
-                total_input_tokens += inp
-                total_output_tokens += out
-
-                # Daily tokens
-                msg_ts = m.get("timestamp")
-                if msg_ts and (inp or out):
-                    if isinstance(msg_ts, (int, float)):
-                        dt = datetime.fromtimestamp(msg_ts / 1000 if msg_ts > 1e12 else msg_ts)
-                    elif isinstance(msg_ts, str):
-                        try:
-                            dt = datetime.fromisoformat(msg_ts)
-                        except (ValueError, TypeError):
-                            dt = None
-                    if dt:
-                        daily_tokens[dt.strftime("%Y-%m-%d")] += inp + out
-
-            if msg_type == "user":
-                content = m.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_result":
-                            message_types["tool_result"] += 1
-
-        # Session duration
-        if len(timestamps) >= 2:
-            duration_min = (max(timestamps) - min(timestamps)) / 60000
-            if duration_min < 5:
-                session_durations["under_5min"] += 1
-            elif duration_min < 15:
-                session_durations["5_to_15min"] += 1
-            elif duration_min < 30:
-                session_durations["15_to_30min"] += 1
-            elif duration_min < 60:
-                session_durations["30_to_60min"] += 1
-            else:
-                session_durations["over_60min"] += 1
-
-    # ── Build daily series ──
-    all_days = sorted(set(list(daily_commands.keys()) + list(daily_sessions.keys()) + list(daily_tokens.keys())))
-    daily_series = [
-        {
-            "date": d,
-            "commands": daily_commands.get(d, 0),
-            "sessions": daily_sessions.get(d, 0),
-            "tokens": daily_tokens.get(d, 0),
-        }
-        for d in all_days
-    ]
-
-    # ── Summary ──
-    total_commands = len(history)
-    total_sessions = len(session_files_all)
-    total_projects = len(project_dirs)
-
-    # ── Changes vs previous period ──
-    prev_commands = len(history_in_prev) if range_ms else 0
-    curr_commands = len(history_in_range)
-    commands_pct = round(((curr_commands - prev_commands) / prev_commands * 100), 1) if prev_commands > 0 else 0
-
-    # Session changes: count sessions modified in prev range
-    prev_session_count = 0
-    curr_session_count = 0
-    for _, sf in session_files_all:
-        mtime_ms = sf.stat().st_mtime * 1000
-        if mtime_ms > cutoff_ms:
-            curr_session_count += 1
-        elif range_ms and mtime_ms > prev_cutoff_ms:
-            prev_session_count += 1
-    sessions_pct = round(((curr_session_count - prev_session_count) / prev_session_count * 100), 1) if prev_session_count > 0 else 0
-
-    # New projects (simplified: just count dirs created in range)
-    projects_new = 0
-    for d in project_dirs:
-        try:
-            if d.stat().st_ctime * 1000 > cutoff_ms:
-                projects_new += 1
-        except OSError:
-            pass
-
-    tokens_pct = 0  # Would need previous period token scan; skip for simplicity
-
-    data = {
-        "summary": {
-            "total_commands": total_commands,
-            "total_sessions": total_sessions,
-            "total_projects": total_projects,
-            "total_tokens": {
-                "input": total_input_tokens,
-                "output": total_output_tokens,
-            },
-        },
-        "changes": {
-            "commands_pct": commands_pct,
-            "sessions_pct": sessions_pct,
-            "projects_new": projects_new,
-            "tokens_pct": tokens_pct,
-        },
-        "daily_series": daily_series,
-        "message_types": dict(message_types),
-        "top_projects": top_projects_out,
-        "hourly_distribution": hourly_dist,
-        "session_durations": session_durations,
-    }
-
-    _set_dashboard_cache(range, data)
-    return data
+    return provider_or_404("claude").get_dashboard_stats(range)
 
 
 @app.get("/api/recent-sessions")
 def get_recent_sessions(limit: int = Query(5, ge=1, le=20)):
     """Get most recent sessions across all projects."""
-    projects_dir = CLAUDE_DIR / "projects"
-    if not projects_dir.exists():
-        return []
-
-    all_sessions = []
-    for project_dir in projects_dir.iterdir():
-        if not project_dir.is_dir():
-            continue
-
-        # Get actual project path from first session's cwd
-        project_path = project_dir.name
-        for sf in project_dir.glob("*.jsonl"):
-            msgs = read_jsonl(sf, limit=5)
-            for m in msgs:
-                cwd = m.get("cwd", "")
-                if cwd:
-                    project_path = cwd
-                    break
-            break
-
-        for session_file in project_dir.glob("*.jsonl"):
-            messages = read_jsonl(session_file, limit=10)
-            first_msg = next((m for m in messages if m.get("type") == "user"), None)
-
-            preview = ""
-            if first_msg:
-                content = first_msg.get("message", {}).get("content", "")
-                if isinstance(content, str):
-                    preview = content[:150]
-                elif isinstance(content, list):
-                    for c in content:
-                        if isinstance(c, dict) and c.get("type") == "text":
-                            preview = c.get("text", "")[:150]
-                            break
-
-            stat = session_file.stat()
-            all_sessions.append({
-                "session_id": session_file.stem,
-                "project_id": project_dir.name,
-                "project_path": project_path,
-                "preview": preview,
-                "message_count": len(read_jsonl(session_file)),
-                "timestamp": stat.st_mtime,
-                "size": stat.st_size,
-            })
-
-    # Sort by timestamp descending
-    all_sessions.sort(key=lambda x: x["timestamp"], reverse=True)
-    return all_sessions[:limit]
+    return provider_or_404("claude").get_recent_sessions(limit)
 
 
 @app.get("/api/history")
@@ -664,268 +75,104 @@ def get_history(
     project: Optional[str] = Query(None),
 ):
     """Get command history with pagination and filtering."""
-    history = read_jsonl(CLAUDE_DIR / "history.jsonl")
-
-    # Reverse to show newest first
-    history.reverse()
-
-    # Filter
-    if search:
-        search_lower = search.lower()
-        history = [
-            h for h in history
-            if search_lower in h.get("display", "").lower()
-        ]
-    if project:
-        history = [
-            h for h in history
-            if project in h.get("project", "")
-        ]
-
-    total = len(history)
-    start = (page - 1) * limit
-    items = history[start : start + limit]
-
-    # Enrich items with project_id
-    session_map = build_session_project_map()
-    for item in items:
-        sid = item.get("sessionId", "")
-        item["project_id"] = session_map.get(sid, "")
-
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "pages": (total + limit - 1) // limit,
-    }
+    return provider_or_404("claude").get_history(page, limit, search, project)
 
 
 @app.get("/api/plans")
 def get_plans():
     """List all plans."""
-    plans_dir = CLAUDE_DIR / "plans"
-    if not plans_dir.exists():
-        return []
-
-    plans = []
-    for f in sorted(plans_dir.glob("*.md")):
-        stat = f.stat()
-        plans.append({
-            "name": f.stem,
-            "filename": f.name,
-            "size": stat.st_size,
-            "modified": stat.st_mtime,
-        })
-    return plans
+    return provider_or_404("claude").get_plans()
 
 
 @app.get("/api/plans/{name}")
 def get_plan(name: str):
     """Get a specific plan's content."""
-    plan_path = CLAUDE_DIR / "plans" / f"{name}.md"
-    if not plan_path.exists():
-        raise HTTPException(404, "Plan not found")
-    return {
-        "name": name,
-        "content": plan_path.read_text(encoding="utf-8"),
-    }
+    return _not_found_as_http404(lambda: provider_or_404("claude").get_plan(name))
 
 
 @app.get("/api/projects")
 def get_projects():
     """List all projects."""
-    projects_dir = CLAUDE_DIR / "projects"
-    if not projects_dir.exists():
-        return []
-
-    projects = []
-    for d in sorted(projects_dir.iterdir()):
-        if not d.is_dir():
-            continue
-        sessions_files = list(d.glob("*.jsonl"))
-
-        # Try to get actual cwd from first session's messages
-        actual_path = ""
-        for sf in sessions_files[:1]:
-            msgs = read_jsonl(sf, limit=5)
-            for m in msgs:
-                cwd = m.get("cwd", "")
-                if cwd:
-                    actual_path = cwd
-                    break
-
-        projects.append({
-            "id": d.name,
-            "path": actual_path or d.name,
-            "display_name": d.name,
-            "session_count": len(sessions_files),
-            "size": sum(f.stat().st_size for f in sessions_files),
-        })
-    return projects
+    return provider_or_404("claude").list_projects()
 
 
 @app.get("/api/projects/{project_id}")
 def get_project_detail(project_id: str):
     """Get project details with sessions sorted by modification time."""
-    project_dir = CLAUDE_DIR / "projects" / project_id
-    if not project_dir.exists():
-        raise HTTPException(404, "Project not found")
-
-    # Get actual path from first session's cwd
-    actual_path = ""
-    sessions_files = list(project_dir.glob("*.jsonl"))
-    for sf in sessions_files[:1]:
-        msgs = read_jsonl(sf, limit=5)
-        for m in msgs:
-            cwd = m.get("cwd", "")
-            if cwd:
-                actual_path = cwd
-                break
-
-    # Get sessions sorted by mtime descending
-    sessions = []
-    for f in project_dir.glob("*.jsonl"):
-        messages = read_jsonl(f, limit=10)
-        first_msg = next((m for m in messages if m.get("type") == "user"), None)
-
-        preview = ""
-        if first_msg:
-            content = first_msg.get("message", {}).get("content", "")
-            if isinstance(content, str):
-                preview = content[:150]
-            elif isinstance(content, list):
-                for c in content:
-                    if isinstance(c, dict) and c.get("type") == "text":
-                        preview = c.get("text", "")[:150]
-                        break
-
-        stat = f.stat()
-        sessions.append({
-            "id": f.stem,
-            "preview": preview,
-            "message_count": len(read_jsonl(f)),
-            "size": stat.st_size,
-            "modified": stat.st_mtime,
-            "created": stat.st_ctime,
-        })
-
-    sessions.sort(key=lambda x: x["modified"], reverse=True)
-
-    return {
-        "id": project_id,
-        "path": actual_path or project_id,
-        "sessions": sessions,
-    }
+    return _not_found_as_http404(lambda: provider_or_404("claude").get_project(project_id))
 
 
 @app.get("/api/projects/{project_id}/sessions")
 def get_project_sessions(project_id: str):
     """List sessions for a project."""
-    project_dir = CLAUDE_DIR / "projects" / project_id
-    if not project_dir.exists():
-        raise HTTPException(404, "Project not found")
-
-    sessions = []
-    for f in sorted(project_dir.glob("*.jsonl")):
-        messages = read_jsonl(f)
-        # Extract session info
-        first_msg = next((m for m in messages if m.get("type") == "user"), None)
-        last_msg = next(
-            (m for m in reversed(messages) if m.get("type") in ("user", "assistant")),
-            None,
-        )
-
-        # Get first user message as preview
-        preview = ""
-        if first_msg:
-            content = first_msg.get("message", {}).get("content", "")
-            if isinstance(content, str):
-                preview = content[:200]
-            elif isinstance(content, list):
-                for c in content:
-                    if isinstance(c, dict) and c.get("type") == "text":
-                        preview = c.get("text", "")[:200]
-                        break
-
-        session_id = f.stem
-        stat = f.stat()
-
-        # Count message types
-        msg_types = {}
-        for m in messages:
-            t = m.get("type", "unknown")
-            msg_types[t] = msg_types.get(t, 0) + 1
-
-        sessions.append({
-            "id": session_id,
-            "preview": preview,
-            "message_count": len(messages),
-            "message_types": msg_types,
-            "size": stat.st_size,
-            "created": stat.st_ctime,
-            "modified": stat.st_mtime,
-            "first_timestamp": first_msg.get("timestamp", "") if first_msg else "",
-            "last_timestamp": last_msg.get("timestamp", "") if last_msg else "",
-        })
-
-    sessions.sort(key=lambda x: x["modified"], reverse=True)
-    return sessions
+    return _not_found_as_http404(lambda: provider_or_404("claude").list_sessions(project_id))
 
 
 @app.get("/api/projects/{project_id}/sessions/{session_id}")
 def get_session_conversation(project_id: str, session_id: str):
     """Get a session's conversation as a reconstructed thread."""
-    session_path = CLAUDE_DIR / "projects" / project_id / f"{session_id}.jsonl"
-    if not session_path.exists():
-        raise HTTPException(404, "Session not found")
-
-    messages = read_jsonl(session_path)
-    conversation = reconstruct_conversation(messages, session_id)
-
-    # Get subagent info
-    subagents_dir = CLAUDE_DIR / "projects" / project_id / session_id / "subagents"
-    subagents = []
-    if subagents_dir.exists():
-        for f in subagents_dir.glob("*.jsonl"):
-            meta_path = f.with_suffix(".meta.json")
-            meta = {}
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text())
-                except Exception:
-                    pass
-            subagents.append({
-                "filename": f.name,
-                "type": meta.get("agentType", "Unknown"),
-                "description": meta.get("description", ""),
-                "size": f.stat().st_size,
-            })
-
-    return {
-        "session_id": session_id,
-        "project_id": project_id,
-        "total_raw_messages": len(messages),
-        "conversation": conversation,
-        "subagents": subagents,
-    }
+    return _not_found_as_http404(lambda: provider_or_404("claude").get_session(project_id, session_id))
 
 
 @app.get("/api/projects/{project_id}/sessions/{session_id}/subagents/{agent_file}")
 def get_subagent_conversation(project_id: str, session_id: str, agent_file: str):
     """Get a subagent's conversation."""
-    agent_path = (
-        CLAUDE_DIR / "projects" / project_id / session_id / "subagents" / agent_file
+    return _not_found_as_http404(
+        lambda: provider_or_404("claude").get_subagent(project_id, session_id, agent_file)
     )
-    if not agent_path.exists():
-        raise HTTPException(404, "Subagent not found")
 
-    messages = read_jsonl(agent_path)
-    conversation = reconstruct_conversation(messages, session_id)
-    return {
-        "conversation": conversation,
-        "total_raw_messages": len(messages),
-    }
+
+@app.get("/api/{source}/stats")
+def get_source_stats(source: str):
+    return provider_or_404(source).get_stats()
+
+
+@app.get("/api/{source}/dashboard-stats")
+def get_source_dashboard_stats(source: str, range: str = Query("30d", pattern="^(7d|30d|all)$")):
+    return provider_or_404(source).get_dashboard_stats(range)
+
+
+@app.get("/api/{source}/recent-sessions")
+def get_source_recent_sessions(source: str, limit: int = Query(5, ge=1, le=20)):
+    return provider_or_404(source).get_recent_sessions(limit)
+
+
+@app.get("/api/{source}/history")
+def get_source_history(
+    source: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    project: Optional[str] = Query(None),
+):
+    return provider_or_404(source).get_history(page, limit, search, project)
+
+
+@app.get("/api/{source}/projects")
+def get_source_projects(source: str):
+    return provider_or_404(source).list_projects()
+
+
+@app.get("/api/{source}/projects/{project_id}")
+def get_source_project_detail(source: str, project_id: str):
+    return _not_found_as_http404(lambda: provider_or_404(source).get_project(project_id))
+
+
+@app.get("/api/{source}/projects/{project_id}/sessions")
+def get_source_project_sessions(source: str, project_id: str):
+    return _not_found_as_http404(lambda: provider_or_404(source).list_sessions(project_id))
+
+
+@app.get("/api/{source}/projects/{project_id}/sessions/{session_id}")
+def get_source_session_conversation(source: str, project_id: str, session_id: str):
+    return _not_found_as_http404(lambda: provider_or_404(source).get_session(project_id, session_id))
+
+
+@app.get("/api/{source}/projects/{project_id}/sessions/{session_id}/subagents/{agent_file}")
+def get_source_subagent_conversation(source: str, project_id: str, session_id: str, agent_file: str):
+    return _not_found_as_http404(
+        lambda: provider_or_404(source).get_subagent(project_id, session_id, agent_file)
+    )
 
 
 # ── Serve Frontend ───────────────────────────────────────────────────────────
@@ -946,8 +193,8 @@ if dist_dir.exists():
 
 if __name__ == "__main__":
     import argparse
-    import webbrowser
     import threading
+    import webbrowser
 
     parser = argparse.ArgumentParser(description="Claude History Viewer")
     parser.add_argument("--port", type=int, default=8787, help="服务端口 (默认: 8787)")
@@ -960,9 +207,12 @@ if __name__ == "__main__":
     if not args.no_open:
         def open_browser():
             import time
+
             time.sleep(1.5)
-            webbrowser.open(f"http://localhost:{args.port}")
+            webbrowser.open("http://localhost:%s" % args.port)
+
         threading.Thread(target=open_browser, daemon=True).start()
 
     import uvicorn
+
     uvicorn.run(app, host=host, port=args.port)

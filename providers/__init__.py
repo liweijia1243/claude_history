@@ -1,9 +1,11 @@
 from typing import Any, Dict, List
 
+from .claude import ClaudeProvider
 from .codex import CodexProvider
 
 
 _PROVIDERS = {
+    "claude": ClaudeProvider(),
     "codex": CodexProvider(),
 }
 
