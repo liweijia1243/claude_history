@@ -292,26 +292,36 @@ class CodexProviderConversationTests(unittest.TestCase):
                     "timestamp": "2026-04-24T10:00:04Z",
                     "type": "response_item",
                     "payload": {
-                        "type": "exec_command_end",
-                        "call_id": "call-1",
-                        "command": ["pwd"],
-                        "cwd": "/repo/alpha",
-                        "stdout": "/repo/alpha\n",
-                        "stderr": "",
-                        "aggregated_output": "/repo/alpha\n",
-                        "formatted_output": "/repo/alpha\n",
-                        "exit_code": 0,
-                        "duration": {"secs": 0, "nanos": 1000},
-                        "status": "completed",
+                        "type": "function_call",
+                        "name": "exec_command",
+                        "arguments": "{\"cmd\":\"ls\"}",
+                        "call_id": "call-2",
                     },
                 },
                 {
                     "timestamp": "2026-04-24T10:00:05Z",
                     "type": "response_item",
                     "payload": {
+                        "type": "exec_command_end",
+                        "call_id": "call-2",
+                        "command": ["ls"],
+                        "cwd": "/repo/alpha",
+                        "stdout": "README.md\n",
+                        "stderr": "",
+                        "aggregated_output": "README.md\n",
+                        "formatted_output": "README.md\n",
+                        "exit_code": 0,
+                        "duration": {"secs": 0, "nanos": 1000},
+                        "status": "completed",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:06Z",
+                    "type": "response_item",
+                    "payload": {
                         "type": "message",
                         "role": "assistant",
-                        "content": [{"type": "output_text", "text": "The cwd is /repo/alpha."}],
+                        "content": [{"type": "output_text", "text": "The repo contains README.md."}],
                     },
                 },
             ]
@@ -327,7 +337,8 @@ class CodexProviderConversationTests(unittest.TestCase):
             self.assertEqual(session["total_raw_messages"], len(events))
             self.assertEqual(session["subagents"], [])
             self.assertEqual(session["metadata"]["cwd"], "/repo/alpha")
-            self.assertEqual(session["metadata"]["codex_source"], "cli")
+            self.assertEqual(session["metadata"]["source"], "cli")
+            self.assertEqual(session["metadata"]["source_provider"], "codex")
             self.assertEqual(session["metadata"]["model_provider"], "openai")
 
             self.assertEqual([m["role"] for m in session["conversation"]], ["user", "assistant"])
@@ -337,23 +348,77 @@ class CodexProviderConversationTests(unittest.TestCase):
 
             assistant = session["conversation"][1]
             self.assertEqual(assistant["thinking"], "Need to inspect cwd")
-            self.assertEqual(assistant["content"], "The cwd is /repo/alpha.")
+            self.assertEqual(assistant["content"], "The repo contains README.md.")
             self.assertEqual(assistant["model"], "gpt-5.5")
             self.assertEqual(assistant["timestamp"], "2026-04-24T10:00:02Z")
             self.assertEqual(assistant["tool_uses"][0]["id"], "call-1")
             self.assertEqual(assistant["tool_uses"][0]["name"], "exec_command")
             self.assertEqual(assistant["tool_uses"][0]["input"], {"cmd": "pwd"})
-            self.assertEqual(assistant["tool_results"][0]["tool_use_id"], "call-1")
-            self.assertEqual(assistant["tool_results"][0]["content"], "/repo/alpha\n")
+            self.assertEqual(assistant["tool_uses"][1]["id"], "call-2")
+            self.assertEqual(assistant["tool_uses"][1]["input"], {"cmd": "ls"})
+            self.assertEqual(assistant["tool_results"][0]["tool_use_id"], "call-2")
+            self.assertEqual(assistant["tool_results"][0]["content"], "README.md\n")
             self.assertFalse(assistant["tool_results"][0]["is_error"])
             result_metadata = assistant["tool_results"][0]["metadata"]
             self.assertEqual(result_metadata["exit_code"], 0)
             self.assertEqual(result_metadata["cwd"], "/repo/alpha")
-            self.assertEqual(result_metadata["command"], ["pwd"])
-            self.assertEqual(result_metadata["stdout"], "/repo/alpha\n")
+            self.assertEqual(result_metadata["command"], ["ls"])
+            self.assertEqual(result_metadata["stdout"], "README.md\n")
             self.assertEqual(result_metadata["stderr"], "")
             self.assertEqual(result_metadata["duration"], {"secs": 0, "nanos": 1000})
             self.assertEqual(result_metadata["status"], "completed")
+
+    def test_rollout_metadata_events_do_not_create_chat_bubbles_and_agent_phase_maps_role(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "check status", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "turn_context",
+                    "payload": {
+                        "type": "turn_context",
+                        "approval_policy": "on-request",
+                        "sandbox_policy": {"mode": "workspace-write"},
+                        "current_date": "2026-04-24",
+                        "timezone": "Asia/Shanghai",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "token_count",
+                    "payload": {"type": "token_count", "input_tokens": 12, "output_tokens": 3},
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "response_item",
+                    "payload": {"type": "agent_message", "phase": "final", "message": "Agent final answer"},
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:03Z",
+                    "type": "response_item",
+                    "payload": {"type": "agent_message", "phase": "started", "message": "Agent started"},
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            self.assertEqual(len(session["conversation"]), 2)
+            self.assertEqual([m["role"] for m in session["conversation"]], ["assistant", "event"])
+            self.assertEqual(session["conversation"][0]["content"], "Agent final answer")
+            self.assertEqual(session["conversation"][0]["metadata"]["phase"], "final")
+            self.assertEqual(session["conversation"][1]["content"], "Agent started")
+            self.assertEqual(session["conversation"][1]["metadata"]["phase"], "started")
+            self.assertEqual(session["metadata"]["approval_policy"], "on-request")
+            self.assertEqual(session["metadata"]["sandbox_policy"], {"mode": "workspace-write"})
+            self.assertEqual(session["metadata"]["current_date"], "2026-04-24")
+            self.assertEqual(session["metadata"]["timezone"], "Asia/Shanghai")
+            self.assertEqual(session["metadata"]["last_token_count"], events[1]["payload"])
 
     def test_encrypted_reasoning_does_not_expose_ciphertext(self):
         with tempfile.TemporaryDirectory() as tmp:

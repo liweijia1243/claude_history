@@ -381,7 +381,8 @@ class CodexProvider(HistoryProvider):
             "model": thread.get("model") or "",
             "model_provider": thread.get("model_provider") or "",
             "reasoning_effort": thread.get("reasoning_effort") or "",
-            "source": self.id,
+            "source": thread.get("source") or "",
+            "source_provider": self.id,
             "codex_source": thread.get("source") or "",
         }
 
@@ -418,6 +419,8 @@ class CodexProvider(HistoryProvider):
                 metadata.update(
                     {
                         "cwd": payload.get("cwd", metadata.get("cwd", "")),
+                        "source": payload.get("source", metadata.get("source", "")),
+                        "source_provider": self.id,
                         "codex_source": payload.get("source", ""),
                         "model_provider": payload.get("model_provider", ""),
                         "git": payload.get("git", {}),
