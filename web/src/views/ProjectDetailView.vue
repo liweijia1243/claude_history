@@ -15,18 +15,36 @@ const project = ref(null)
 const sessions = ref([])
 const loading = ref(true)
 const searchActive = ref(false)
+let projectRequestId = 0
 
 async function fetchProject() {
+  const requestId = ++projectRequestId
+  const requestSource = source.value
+  const requestProjectId = props.projectId
   loading.value = true
-  const res = await fetch(apiPath(source.value, `/projects/${props.projectId}`))
-  if (!res.ok) {
-    router.push(routePath(source.value, '/projects'))
-    return
+  try {
+    const res = await fetch(apiPath(requestSource, `/projects/${requestProjectId}`))
+    if (requestId !== projectRequestId || requestSource !== source.value || requestProjectId !== props.projectId) return
+
+    if (!res.ok) {
+      router.push(routePath(requestSource, '/projects'))
+      return
+    }
+
+    const data = await res.json()
+    if (requestId !== projectRequestId || requestSource !== source.value || requestProjectId !== props.projectId) return
+
+    project.value = data
+    sessions.value = data.sessions
+  } catch {
+    if (requestId === projectRequestId && requestSource === source.value && requestProjectId === props.projectId) {
+      router.push(routePath(requestSource, '/projects'))
+    }
+  } finally {
+    if (requestId === projectRequestId && requestSource === source.value && requestProjectId === props.projectId) {
+      loading.value = false
+    }
   }
-  const data = await res.json()
-  project.value = data
-  sessions.value = data.sessions
-  loading.value = false
 }
 
 onMounted(async () => {

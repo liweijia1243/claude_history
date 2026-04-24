@@ -46,6 +46,7 @@ const totalRaw = ref(0)
 const showThinking = ref(localStorage.getItem('conv_showThinking') === 'true')
 const showTools = ref(localStorage.getItem('conv_showTools') === 'true')
 const showAgents = ref(localStorage.getItem('conv_showAgents') === 'true')
+let conversationRequestId = 0
 
 watch(showThinking, v => localStorage.setItem('conv_showThinking', v))
 watch(showTools, v => localStorage.setItem('conv_showTools', v))
@@ -67,17 +68,41 @@ watch(subagentShowTools, v => localStorage.setItem('conv_subagentShowTools', v))
 
 const selectedSubagent = ref(null)
 const subagentConversation = ref([])
+let subagentRequestId = 0
 
 async function fetchConversation() {
+  const requestId = ++conversationRequestId
+  const requestSource = source.value
+  const requestProjectId = props.projectId
+  const requestSessionId = props.sessionId
   loading.value = true
-  const res = await fetch(apiPath(source.value, `/projects/${props.projectId}/sessions/${props.sessionId}`))
-  const data = await res.json()
-  conversation.value = data.conversation
-  subagents.value = data.subagents || []
-  sessionMetadata.value = data.metadata || {}
-  totalRaw.value = data.total_raw_messages
-  loading.value = false
-  scrollToMessage()
+  try {
+    const res = await fetch(apiPath(requestSource, `/projects/${requestProjectId}/sessions/${requestSessionId}`))
+    if (requestId !== conversationRequestId || requestSource !== source.value || requestProjectId !== props.projectId || requestSessionId !== props.sessionId) return
+
+    if (!res.ok) {
+      router.push(routePath(requestSource, '/projects'))
+      return
+    }
+
+    const data = await res.json()
+    if (requestId !== conversationRequestId || requestSource !== source.value || requestProjectId !== props.projectId || requestSessionId !== props.sessionId) return
+
+    conversation.value = data.conversation
+    subagents.value = data.subagents || []
+    sessionMetadata.value = data.metadata || {}
+    totalRaw.value = data.total_raw_messages
+    loading.value = false
+    scrollToMessage()
+  } catch {
+    if (requestId === conversationRequestId && requestSource === source.value && requestProjectId === props.projectId && requestSessionId === props.sessionId) {
+      router.push(routePath(requestSource, '/projects'))
+    }
+  } finally {
+    if (requestId === conversationRequestId && requestSource === source.value && requestProjectId === props.projectId && requestSessionId === props.sessionId) {
+      loading.value = false
+    }
+  }
 }
 
 onMounted(async () => {
@@ -127,12 +152,22 @@ function getModelIcon(model) {
 }
 
 async function openSubagent(agent) {
-  const res = await fetch(
-    apiPath(source.value, `/projects/${props.projectId}/sessions/${props.sessionId}/subagents/${agent.filename}`)
-  )
-  const data = await res.json()
-  subagentConversation.value = data.conversation
-  selectedSubagent.value = agent
+  const requestId = ++subagentRequestId
+  const requestSource = source.value
+  const requestProjectId = props.projectId
+  const requestSessionId = props.sessionId
+  try {
+    const res = await fetch(
+      apiPath(requestSource, `/projects/${requestProjectId}/sessions/${requestSessionId}/subagents/${agent.filename}`)
+    )
+    if (!res.ok || requestId !== subagentRequestId || requestSource !== source.value || requestProjectId !== props.projectId || requestSessionId !== props.sessionId) return
+    const data = await res.json()
+    if (requestId !== subagentRequestId || requestSource !== source.value || requestProjectId !== props.projectId || requestSessionId !== props.sessionId) return
+    subagentConversation.value = data.conversation
+    selectedSubagent.value = agent
+  } catch {
+    // Keep the current conversation visible if a subagent panel cannot be loaded.
+  }
 }
 
 function closeSubagent() {
@@ -209,6 +244,7 @@ const sessionModel = computed(() => sessionMetadata.value?.model || '')
 const sessionReasoningEffort = computed(() => sessionMetadata.value?.reasoning_effort || '')
 
 watch([source, () => props.projectId, () => props.sessionId], () => {
+  subagentRequestId++
   selectedSubagent.value = null
   subagentConversation.value = []
   fetchConversation()

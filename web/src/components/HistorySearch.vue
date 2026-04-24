@@ -23,6 +23,7 @@ const searchTimeout = ref(null)
 const blurTimeout = ref(null)
 const active = ref(props.initiallyActive)
 const hasLoaded = ref(false)
+let historyRequestId = 0
 
 const route = useRoute()
 const router = useRouter()
@@ -37,20 +38,33 @@ const expandedItems = ref(new Set())
 const clickTimer = ref(null)
 
 async function fetchHistory() {
+  const requestId = ++historyRequestId
+  const requestSource = props.source
+  const requestProjectPath = props.projectPath
   loading.value = true
   const params = new URLSearchParams({
     page: page.value,
     limit: 50,
     ...(search.value ? { search: search.value } : {}),
-    ...(props.projectPath ? { project: props.projectPath } : {}),
+    ...(requestProjectPath ? { project: requestProjectPath } : {}),
   })
-  const res = await fetch(`${apiPath(props.source, '/history')}?${params}`)
-  const data = await res.json()
-  items.value = data.items
-  total.value = data.total
-  pages.value = data.pages
-  loading.value = false
-  hasLoaded.value = true
+  try {
+    const res = await fetch(`${apiPath(requestSource, '/history')}?${params}`)
+    if (!res.ok) return
+    const data = await res.json()
+    if (requestId !== historyRequestId || requestSource !== props.source || requestProjectPath !== props.projectPath) return
+
+    items.value = data.items
+    total.value = data.total
+    pages.value = data.pages
+    hasLoaded.value = true
+  } catch {
+    // Keep existing results visible if a newer search/source change is in flight.
+  } finally {
+    if (requestId === historyRequestId && requestSource === props.source && requestProjectPath === props.projectPath) {
+      loading.value = false
+    }
+  }
 }
 
 function onSearchInput() {
@@ -187,6 +201,8 @@ onMounted(() => {
 })
 watch(page, fetchHistory)
 watch(() => props.source, () => {
+  historyRequestId++
+  loading.value = false
   expandedItems.value = new Set()
   if (!active.value && !hasLoaded.value) return
 

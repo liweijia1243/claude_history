@@ -18,21 +18,33 @@ const dashboardStats = ref(null)
 const recentSessions = ref([])
 const loading = ref(true)
 const range = ref('30d')
-
-async function fetchDashboardStats() {
-  const res = await fetch(`${apiPath(source.value, '/dashboard-stats')}?range=${range.value}`)
-  dashboardStats.value = await res.json()
-}
-
-async function fetchRecentSessions() {
-  const res = await fetch(`${apiPath(source.value, '/recent-sessions')}?limit=4`)
-  recentSessions.value = await res.json()
-}
+let dashboardRequestId = 0
 
 async function loadDashboard() {
+  const requestId = ++dashboardRequestId
+  const requestSource = source.value
+  const requestRange = range.value
   loading.value = true
-  await Promise.all([fetchDashboardStats(), fetchRecentSessions()])
-  loading.value = false
+
+  try {
+    const [statsRes, recentRes] = await Promise.all([
+      fetch(`${apiPath(requestSource, '/dashboard-stats')}?range=${requestRange}`),
+      fetch(`${apiPath(requestSource, '/recent-sessions')}?limit=4`),
+    ])
+    if (!statsRes.ok || !recentRes.ok) return
+
+    const [stats, sessions] = await Promise.all([statsRes.json(), recentRes.json()])
+    if (requestId !== dashboardRequestId || requestSource !== source.value) return
+
+    dashboardStats.value = stats
+    recentSessions.value = sessions
+  } catch {
+    // Keep the current dashboard visible if this source request fails.
+  } finally {
+    if (requestId === dashboardRequestId && requestSource === source.value) {
+      loading.value = false
+    }
+  }
 }
 
 onMounted(async () => {
@@ -40,7 +52,7 @@ onMounted(async () => {
 })
 
 watch(range, () => {
-  fetchDashboardStats()
+  loadDashboard()
 })
 
 watch(source, () => {

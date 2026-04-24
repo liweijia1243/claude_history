@@ -9,6 +9,7 @@ const source = computed(() => sourceFromRoute(route))
 const projects = ref([])
 const loading = ref(true)
 const searchQuery = ref('')
+let projectsRequestId = 0
 
 const filteredProjects = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -17,10 +18,23 @@ const filteredProjects = computed(() => {
 })
 
 async function fetchProjects() {
+  const requestId = ++projectsRequestId
+  const requestSource = source.value
   loading.value = true
-  const res = await fetch(apiPath(source.value, '/projects'))
-  projects.value = await res.json()
-  loading.value = false
+  try {
+    const res = await fetch(apiPath(requestSource, '/projects'))
+    if (!res.ok) return
+    const data = await res.json()
+    if (requestId !== projectsRequestId || requestSource !== source.value) return
+
+    projects.value = data
+  } catch {
+    // Keep the current project list visible if this source request fails.
+  } finally {
+    if (requestId === projectsRequestId && requestSource === source.value) {
+      loading.value = false
+    }
+  }
 }
 
 onMounted(async () => {

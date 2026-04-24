@@ -19,6 +19,7 @@ vi.mock('vue-router', () => ({
 
 function createFetchMock() {
   return vi.fn(() => Promise.resolve({
+    ok: true,
     json: () => Promise.resolve({
       items: [
         {
