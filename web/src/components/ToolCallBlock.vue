@@ -20,7 +20,7 @@ function isExpanded(idx) {
 }
 
 function onToolClick(tool, i) {
-  if (tool.name === 'Agent' && props.openSubagentHandler) {
+  if (props.openSubagentHandler && (tool.name === 'Agent' || tool.metadata?.agent_id)) {
     if (props.openSubagentHandler(tool)) return
   }
   toggle(i)

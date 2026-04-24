@@ -17,7 +17,7 @@ vi.mock('vue-router', () => ({
   }),
 }))
 
-function mountConversation() {
+function mountConversation(stubs = {}) {
   return mount(ConversationView, {
     props: {
       projectId: 'project-1',
@@ -29,6 +29,7 @@ function mountConversation() {
         ThinkingBlock: true,
         CodeBlock: true,
         Transition: false,
+        ...stubs,
       },
     },
   })
@@ -61,5 +62,55 @@ describe('ConversationView', () => {
 
     expect(global.fetch).toHaveBeenCalledWith('/api/codex/projects/project-1/sessions/session-1')
     expect(push).toHaveBeenCalledWith('/sources/codex/projects')
+  })
+
+  it('groups Codex spawn_agent calls with agent tools instead of regular tools', async () => {
+    localStorage.setItem('conv_showAgents', 'true')
+    localStorage.setItem('conv_showTools', 'false')
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        conversation: [
+          {
+            role: 'assistant',
+            content: '',
+            thinking: '',
+            tool_uses: [
+              {
+                id: 'spawn-1',
+                name: 'spawn_agent',
+                input: { agent_type: 'worker', message: 'do work' },
+                metadata: { agent_id: 'child-thread' },
+              },
+            ],
+            tool_results: [],
+            model: 'gpt-5.5',
+            timestamp: '2026-04-24T10:00:00Z',
+          },
+        ],
+        subagents: [
+          {
+            filename: 'child-thread',
+            type: 'worker',
+            description: 'do work',
+          },
+        ],
+        metadata: {},
+        total_raw_messages: 1,
+      }),
+    }))
+
+    const wrapper = mountConversation({
+      ToolCallBlock: {
+        name: 'ToolCallBlock',
+        props: ['toolUses'],
+        template: '<div class="tool-block">{{ toolUses.map(t => t.name).join(",") }}</div>',
+      },
+    })
+    await flushPromises()
+
+    const blocks = wrapper.findAll('.tool-block')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].text()).toBe('spawn_agent')
   })
 })

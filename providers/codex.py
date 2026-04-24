@@ -28,7 +28,43 @@ class CodexProvider(HistoryProvider):
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _read_threads(self) -> List[Dict[str, Any]]:
+    def _read_spawn_edges(self) -> List[Dict[str, Any]]:
+        if not self.available():
+            return []
+
+        with closing(self._connect()) as conn:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT parent_thread_id, child_thread_id, status
+                    FROM thread_spawn_edges
+                    """
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+
+        return [dict(row) for row in rows]
+
+    def _child_thread_ids(self) -> Set[str]:
+        return {edge.get("child_thread_id", "") for edge in self._read_spawn_edges()}
+
+    @staticmethod
+    def _source_metadata(source: Any) -> Dict[str, Any]:
+        if isinstance(source, dict):
+            return source
+        if not isinstance(source, str) or not source.strip().startswith("{"):
+            return {}
+        try:
+            parsed = json.loads(source)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @classmethod
+    def _is_subagent_thread(cls, thread: Dict[str, Any]) -> bool:
+        return "subagent" in cls._source_metadata(thread.get("source"))
+
+    def _read_threads(self, include_children: bool = False) -> List[Dict[str, Any]]:
         if not self.available():
             return []
 
@@ -37,14 +73,24 @@ class CodexProvider(HistoryProvider):
                 """
                 SELECT id, rollout_path, created_at, updated_at, source, model_provider, cwd,
                        title, tokens_used, archived, git_sha, git_branch, git_origin_url,
-                       first_user_message, model, reasoning_effort, created_at_ms, updated_at_ms
+                       first_user_message, model, reasoning_effort, agent_nickname, agent_role,
+                       agent_path, created_at_ms, updated_at_ms
                 FROM threads
                 WHERE archived = 0
                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC
                 """
             ).fetchall()
 
-        return [dict(row) for row in rows]
+        threads = [dict(row) for row in rows]
+        if include_children:
+            return threads
+
+        child_ids = self._child_thread_ids()
+        return [
+            thread
+            for thread in threads
+            if thread.get("id") not in child_ids and not self._is_subagent_thread(thread)
+        ]
 
     @staticmethod
     def _project_id(cwd: str) -> str:
@@ -118,6 +164,39 @@ class CodexProvider(HistoryProvider):
                     reverse=True,
                 )
         raise FileNotFoundError("Project not found")
+
+    def _all_threads_by_id(self) -> Dict[str, Dict[str, Any]]:
+        return {thread.get("id", ""): thread for thread in self._read_threads(include_children=True)}
+
+    def _subagent_summaries(self, parent_thread_id: str) -> List[Dict[str, Any]]:
+        threads = self._all_threads_by_id()
+        subagents = []
+        for edge in self._read_spawn_edges():
+            if edge.get("parent_thread_id") != parent_thread_id:
+                continue
+            child = threads.get(edge.get("child_thread_id", ""))
+            if not child:
+                continue
+            rollout = Path(child.get("rollout_path") or "")
+            subagents.append(
+                {
+                    "id": child.get("id", ""),
+                    "session_id": child.get("id", ""),
+                    "filename": child.get("id", ""),
+                    "type": child.get("agent_role") or "subagent",
+                    "nickname": child.get("agent_nickname") or "",
+                    "description": child.get("first_user_message") or child.get("title") or "",
+                    "title": child.get("title") or "",
+                    "status": edge.get("status", ""),
+                    "source": self.id,
+                    "size": rollout.stat().st_size if rollout.exists() else 0,
+                    "created": self._thread_created_seconds(child),
+                    "modified": self._thread_modified_seconds(child),
+                }
+            )
+
+        subagents.sort(key=lambda item: (item.get("created") or 0, item.get("id") or ""))
+        return subagents
 
     def get_stats(self) -> Dict[str, Any]:
         threads = self._read_threads()
@@ -212,7 +291,9 @@ class CodexProvider(HistoryProvider):
                         continue
 
                     session_id = raw.get("session_id", "")
-                    thread = threads.get(session_id, {})
+                    thread = threads.get(session_id)
+                    if not thread:
+                        continue
                     cwd = thread.get("cwd", "")
                     display = raw.get("text", "")
                     if search and search.lower() not in display.lower():
@@ -337,6 +418,15 @@ class CodexProvider(HistoryProvider):
         return {"arguments": parsed}
 
     @classmethod
+    def _tool_input(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if "arguments" in payload:
+            return cls._parse_arguments(payload.get("arguments", ""))
+        raw = payload.get("input", {})
+        if isinstance(raw, dict):
+            return raw
+        return {"input": raw} if raw is not None else {}
+
+    @classmethod
     def _reasoning_text(cls, payload: Dict[str, Any]) -> Tuple[str, bool]:
         content = payload.get("content")
         text = cls._content_text(content)
@@ -357,7 +447,7 @@ class CodexProvider(HistoryProvider):
             return summary, False
 
         if payload.get("encrypted_content"):
-            return "[Encrypted reasoning available]", True
+            return "", True
         return "", False
 
     @staticmethod
@@ -407,7 +497,13 @@ class CodexProvider(HistoryProvider):
         def flush_assistant() -> None:
             nonlocal current_assistant
             if current_assistant is not None:
-                conversation.append(current_assistant)
+                if (
+                    current_assistant.get("content")
+                    or current_assistant.get("thinking")
+                    or current_assistant.get("tool_uses")
+                    or current_assistant.get("tool_results")
+                ):
+                    conversation.append(current_assistant)
                 current_assistant = None
 
         def append_assistant_text(assistant: Dict[str, Any], text: str) -> None:
@@ -485,6 +581,8 @@ class CodexProvider(HistoryProvider):
                 assistant = ensure_assistant(timestamp)
                 text, encrypted = self._reasoning_text(payload)
                 if text:
+                    if encrypted and assistant.get("thinking") == text:
+                        continue
                     assistant["thinking"] = "\n".join(
                         part for part in [assistant.get("thinking", ""), text] if part
                     )
@@ -493,15 +591,19 @@ class CodexProvider(HistoryProvider):
                     metadata["reasoning_encrypted"] = True
                 continue
 
-            if payload_type == "function_call":
+            if payload_type in ("function_call", "custom_tool_call"):
                 assistant = ensure_assistant(timestamp)
                 call_id = payload.get("call_id", "")
                 assistant["tool_uses"].append(
                     make_tool_use(
                         call_id,
                         payload.get("name", ""),
-                        self._parse_arguments(payload.get("arguments", "")),
-                        {"provider": self.id},
+                        self._tool_input(payload),
+                        {
+                            "provider": self.id,
+                            "custom": payload_type == "custom_tool_call",
+                            "status": payload.get("status"),
+                        },
                     )
                 )
                 if call_id:
@@ -524,21 +626,38 @@ class CodexProvider(HistoryProvider):
                         )
                     )
                     tool_owner[call_id] = owner
+                result_content = self._result_content(payload)
+                result_metadata = {
+                    "exit_code": payload.get("exit_code"),
+                    "cwd": payload.get("cwd", ""),
+                    "command": payload.get("command", []),
+                    "stdout": payload.get("stdout", ""),
+                    "stderr": payload.get("stderr", ""),
+                    "duration": payload.get("duration"),
+                    "status": payload.get("status"),
+                    "parsed_cmd": payload.get("parsed_cmd", []),
+                }
+                try:
+                    parsed_output = json.loads(result_content) if result_content else {}
+                except json.JSONDecodeError:
+                    parsed_output = {}
+                if isinstance(parsed_output, dict):
+                    result_metadata["output_json"] = parsed_output
+                    agent_id = parsed_output.get("agent_id")
+                    if agent_id:
+                        for tool in owner.get("tool_uses", []):
+                            if tool.get("id") == call_id:
+                                tool.setdefault("metadata", {})["agent_id"] = agent_id
+                                if parsed_output.get("nickname"):
+                                    tool["metadata"]["agent_nickname"] = parsed_output.get("nickname")
+                                break
+
                 owner["tool_results"].append(
                     make_tool_result(
                         call_id,
-                        self._result_content(payload),
+                        result_content,
                         bool(payload.get("exit_code")),
-                        {
-                            "exit_code": payload.get("exit_code"),
-                            "cwd": payload.get("cwd", ""),
-                            "command": payload.get("command", []),
-                            "stdout": payload.get("stdout", ""),
-                            "stderr": payload.get("stderr", ""),
-                            "duration": payload.get("duration"),
-                            "status": payload.get("status"),
-                            "parsed_cmd": payload.get("parsed_cmd", []),
-                        },
+                        result_metadata,
                     )
                 )
                 continue
@@ -580,12 +699,58 @@ class CodexProvider(HistoryProvider):
         events = self._read_jsonl(rollout)
         conversation, metadata = self._reconstruct_rollout(events, thread)
         metadata["cwd"] = cwd
+        subagents = self._subagent_summaries(session_id)
         return {
             "session_id": session_id,
             "project_id": project_id,
             "source": self.id,
             "total_raw_messages": len(events),
             "conversation": conversation,
-            "subagents": [],
+            "subagents": subagents,
+            "metadata": metadata,
+        }
+
+    def get_subagent(self, project_id: str, session_id: str, agent_file: str) -> Dict[str, Any]:
+        cwd, threads = self._find_project_threads(project_id)
+        parent = next((item for item in threads if item.get("id") == session_id), None)
+        if not parent:
+            raise FileNotFoundError("Session not found")
+
+        edge = next(
+            (
+                item
+                for item in self._read_spawn_edges()
+                if item.get("parent_thread_id") == session_id and item.get("child_thread_id") == agent_file
+            ),
+            None,
+        )
+        if not edge:
+            raise FileNotFoundError("Subagent not found")
+
+        child = self._all_threads_by_id().get(agent_file)
+        if not child or child.get("cwd") != cwd:
+            raise FileNotFoundError("Subagent not found")
+
+        rollout = Path(child.get("rollout_path") or "")
+        if not rollout.exists():
+            raise FileNotFoundError("Subagent not found")
+
+        events = self._read_jsonl(rollout)
+        conversation, metadata = self._reconstruct_rollout(events, child)
+        metadata.update(
+            {
+                "cwd": cwd,
+                "parent_thread_id": session_id,
+                "status": edge.get("status", ""),
+                "agent_nickname": child.get("agent_nickname") or "",
+                "agent_role": child.get("agent_role") or "",
+            }
+        )
+        return {
+            "session_id": agent_file,
+            "project_id": project_id,
+            "source": self.id,
+            "total_raw_messages": len(events),
+            "conversation": conversation,
             "metadata": metadata,
         }

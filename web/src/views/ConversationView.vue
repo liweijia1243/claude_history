@@ -52,7 +52,7 @@ watch(showThinking, v => localStorage.setItem('conv_showThinking', v))
 watch(showTools, v => localStorage.setItem('conv_showTools', v))
 watch(showAgents, v => localStorage.setItem('conv_showAgents', v))
 
-const agentToolNames = new Set(['Agent', 'TaskOutput'])
+const agentToolNames = new Set(['Agent', 'TaskOutput', 'spawn_agent', 'wait_agent', 'send_input', 'close_agent', 'resume_agent'])
 
 function getAgentTools(toolUses) {
   return toolUses?.filter(t => agentToolNames.has(t.name)) || []
@@ -176,6 +176,15 @@ function closeSubagent() {
 }
 
 function handleAgentClick(tool) {
+  const agentId = tool.metadata?.agent_id || tool.input?.agent_id || tool.input?.target
+  if (agentId) {
+    const agent = subagents.value.find(s => s.id === agentId || s.session_id === agentId || s.filename === agentId)
+    if (agent) {
+      openSubagent(agent)
+      return true
+    }
+  }
+
   const input = tool.input || {}
   const subagentType = input.subagent_type || 'general-purpose'
   const agent = subagents.value.find(

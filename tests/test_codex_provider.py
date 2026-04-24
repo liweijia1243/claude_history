@@ -80,6 +80,15 @@ def create_codex_state(root: Path):
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE thread_spawn_edges (
+            parent_thread_id TEXT NOT NULL,
+            child_thread_id TEXT NOT NULL PRIMARY KEY,
+            status TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -164,6 +173,35 @@ class CodexProviderIndexTests(unittest.TestCase):
             projects = provider.list_projects()
 
             self.assertEqual([p["path"] for p in projects], ["/repo/alpha"])
+            self.assertEqual(provider.get_stats()["total_sessions"], 1)
+
+    def test_source_marked_subagent_threads_are_excluded_without_spawn_edge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha title", "build alpha", 1000, 3000)
+            insert_thread(
+                conn,
+                root,
+                "guardian-thread",
+                "/repo/alpha",
+                "Guardian title",
+                "The following is the Codex agent history whose request action you are assessing.",
+                2000,
+                4000,
+            )
+            conn.execute(
+                "UPDATE threads SET source = ? WHERE id = ?",
+                (json.dumps({"subagent": {"other": "guardian"}}), "guardian-thread"),
+            )
+            conn.commit()
+            conn.close()
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            detail = provider.get_project(project_id)
+
+            self.assertEqual([session["id"] for session in detail["sessions"]], ["thread-a"])
             self.assertEqual(provider.get_stats()["total_sessions"], 1)
 
     def test_project_detail_lists_sessions_newest_first(self):
@@ -570,9 +608,178 @@ class CodexProviderConversationTests(unittest.TestCase):
             session = provider.get_session(project_id, "thread-a")
 
             self.assertNotIn("secret-ciphertext", json.dumps(session))
-            self.assertEqual(session["conversation"][0]["thinking"], "[Encrypted reasoning available]")
-            self.assertTrue(session["conversation"][0]["metadata"]["reasoning_encrypted"])
+            self.assertEqual(session["conversation"], [])
             self.assertTrue(session["metadata"]["reasoning_encrypted"])
+
+    def test_subagent_threads_are_attached_to_parent_not_top_level_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            parent_rollout = insert_thread(
+                conn, root, "parent-thread", "/repo/alpha", "Parent", "delegate work", 1000, 4000
+            )
+            child_rollout = insert_thread(
+                conn, root, "child-thread", "/repo/alpha", "Worker task", "worker prompt", 2000, 3000
+            )
+            conn.execute(
+                "UPDATE threads SET agent_nickname = ?, agent_role = ? WHERE id = ?",
+                ("Kuhn", "worker", "child-thread"),
+            )
+            conn.execute(
+                "INSERT INTO thread_spawn_edges (parent_thread_id, child_thread_id, status) VALUES (?, ?, ?)",
+                ("parent-thread", "child-thread", "closed"),
+            )
+            conn.commit()
+            conn.close()
+
+            parent_events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "event_msg",
+                    "payload": {"type": "user_message", "message": "delegate work"},
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call",
+                        "name": "spawn_agent",
+                        "arguments": "{\"agent_type\":\"worker\",\"message\":\"worker prompt\"}",
+                        "call_id": "spawn-1",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call_output",
+                        "call_id": "spawn-1",
+                        "output": "{\"agent_id\":\"child-thread\",\"nickname\":\"Kuhn\"}",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "Worker is complete."}],
+                    },
+                },
+            ]
+            parent_rollout.write_text(
+                "\n".join(json.dumps(event) for event in parent_events) + "\n",
+                encoding="utf-8",
+            )
+
+            child_events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "child-thread",
+                        "cwd": "/repo/alpha",
+                        "source": {
+                            "subagent": {
+                                "thread_spawn": {
+                                    "parent_thread_id": "parent-thread",
+                                    "depth": 1,
+                                    "agent_nickname": "Kuhn",
+                                    "agent_role": "worker",
+                                }
+                            }
+                        },
+                        "model_provider": "openai",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "event_msg",
+                    "payload": {"type": "user_message", "message": "worker prompt"},
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "worker done"}],
+                    },
+                },
+            ]
+            child_rollout.write_text(
+                "\n".join(json.dumps(event) for event in child_events) + "\n",
+                encoding="utf-8",
+            )
+
+            (root / "history.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps({"session_id": "parent-thread", "ts": 1777000000000, "text": "delegate work"}),
+                        json.dumps({"session_id": "child-thread", "ts": 1777000001000, "text": "worker prompt"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            project = provider.get_project(project_id)
+            session = provider.get_session(project_id, "parent-thread")
+            subagent = provider.get_subagent(project_id, "parent-thread", "child-thread")
+            history = provider.get_history(page=1, limit=50, search=None, project=None)
+
+            self.assertEqual([item["id"] for item in project["sessions"]], ["parent-thread"])
+            self.assertEqual([item["sessionId"] for item in history["items"]], ["parent-thread"])
+            self.assertEqual(len(session["subagents"]), 1)
+            self.assertEqual(session["subagents"][0]["filename"], "child-thread")
+            self.assertEqual(session["subagents"][0]["type"], "worker")
+            self.assertEqual(session["subagents"][0]["nickname"], "Kuhn")
+            self.assertEqual(session["subagents"][0]["status"], "closed")
+            self.assertEqual(session["subagents"][0]["size"], child_rollout.stat().st_size)
+            self.assertEqual(session["conversation"][1]["tool_uses"][0]["name"], "spawn_agent")
+            self.assertEqual(session["conversation"][1]["tool_uses"][0]["metadata"]["agent_id"], "child-thread")
+            self.assertEqual(session["conversation"][1]["tool_uses"][0]["metadata"]["agent_nickname"], "Kuhn")
+            self.assertEqual([message["content"] for message in subagent["conversation"]], ["worker prompt", "worker done"])
+            self.assertEqual(subagent["metadata"]["parent_thread_id"], "parent-thread")
+
+            with self.assertRaises(FileNotFoundError):
+                provider.get_session(project_id, "child-thread")
+
+    def test_custom_tool_call_is_reconstructed_as_tool_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = create_codex_state(root)
+            rollout = insert_thread(conn, root, "thread-a", "/repo/alpha", "Alpha", "patch", 1000, 4000)
+            conn.close()
+            events = [
+                {
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "custom_tool_call",
+                        "name": "apply_patch",
+                        "call_id": "patch-1",
+                        "input": "*** Begin Patch\n*** End Patch\n",
+                    },
+                },
+                {
+                    "timestamp": "2026-04-24T10:00:01Z",
+                    "type": "response_item",
+                    "payload": {"type": "function_call_output", "call_id": "patch-1", "output": "Done"},
+                },
+            ]
+            rollout.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+            provider = CodexProvider(root=root)
+            project_id = provider.list_projects()[0]["id"]
+            session = provider.get_session(project_id, "thread-a")
+
+            tool = session["conversation"][0]["tool_uses"][0]
+            self.assertEqual(tool["name"], "apply_patch")
+            self.assertEqual(tool["input"], {"input": "*** Begin Patch\n*** End Patch\n"})
+            self.assertEqual(session["conversation"][0]["tool_results"][0]["content"], "Done")
 
 
 if __name__ == "__main__":
