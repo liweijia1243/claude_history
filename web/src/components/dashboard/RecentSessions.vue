@@ -1,8 +1,10 @@
 <script setup>
 import { useRouter } from 'vue-router'
+import { DEFAULT_SOURCE, routePath } from '../../utils/source'
 
 const props = defineProps({
   sessions: { type: Array, default: () => [] },
+  source: { type: String, default: DEFAULT_SOURCE },
 })
 
 const router = useRouter()
@@ -22,7 +24,7 @@ function formatTime(ts) {
 }
 
 function openSession(session) {
-  router.push(`/projects/${session.project_id}/sessions/${session.session_id}`)
+  router.push(routePath(props.source, `/projects/${session.project_id}/sessions/${session.session_id}`))
 }
 </script>
 
@@ -30,7 +32,7 @@ function openSession(session) {
   <div class="bg-[var(--bg-card)] rounded-xl p-5 border border-[var(--border-color)]">
     <div class="flex items-center justify-between mb-3">
       <div class="text-[var(--text-primary)] font-semibold">最近会话</div>
-      <router-link to="/projects" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+      <router-link :to="routePath(source, '/projects')" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
         查看全部 →
       </router-link>
     </div>

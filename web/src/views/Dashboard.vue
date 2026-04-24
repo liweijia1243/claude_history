@@ -147,7 +147,7 @@ function navigateToProject(projectId) {
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4">
         <TokenUsageChart :total-tokens="dashboardStats.summary.total_tokens" />
         <SessionDurationChart :session-durations="dashboardStats.session_durations" />
-        <RecentSessions :sessions="recentSessions" />
+        <RecentSessions :sessions="recentSessions" :source="source" />
       </div>
     </div>
   </div>
